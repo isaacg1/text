@@ -225,17 +225,17 @@ fn editor_open(editor_config: &mut EditorConfig, filename: &str) -> io::Result<(
 }
 
 fn editor_save(editor_config: &mut EditorConfig) -> io::Result<usize> {
-    match editor_config.filename {
-        None => return Ok(0), // TODO: Prompt for user to enter filename.
-        Some(ref filename) => {
-            let mut file = File::create(filename)?;
-            let mut text = editor_config.rows.join("\n");
-            text.push('\n');
-            file.write_all(text.as_bytes())?;
-            editor_config.modified = false;
-            Ok(text.len())
-        }
+    if editor_config.filename.is_none() {
+        editor_config.filename = Some(editor_prompt(editor_config, "Save as: "));
     }
+
+    let filename = editor_config.filename.clone().unwrap();
+    let mut file = File::create(filename)?;
+    let mut text = editor_config.rows.join("\n");
+    text.push('\n');
+    file.write_all(text.as_bytes())?;
+    editor_config.modified = false;
+    Ok(text.len())
 }
 
 /*** output ***/
@@ -337,6 +337,27 @@ fn editor_set_status_message(editor_config: &mut EditorConfig, message: &str) {
 }
 
 /*** input ***/
+
+fn editor_prompt(editor_config: &mut EditorConfig, prompt: &str) -> String {
+    let mut response = String::new();
+    loop {
+        editor_set_status_message(editor_config, &format!("{}{}", prompt, response));
+        editor_refresh_screen(editor_config);
+
+        let c = editor_read_key();
+        if let EditorKey::Verbatim(c) = c {
+            if c == '\r' {
+                if response.len() > 0 {
+                    editor_set_status_message(editor_config, "");
+                    return response;
+                }
+            } else if c as usize >= 32 && (c as usize) < 128 {
+                response.push(c);
+            }
+        }
+    }
+}
+
 fn editor_move_cursor(editor_config: &mut EditorConfig, key: EditorKey) {
     let row_len = if editor_config.rows.len() > editor_config.cursor_y {
         editor_config.rows[editor_config.cursor_y].len()

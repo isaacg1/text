@@ -26,12 +26,19 @@ fn ctrl_key(k: char) -> char {
     (k as u8 & 0x1f) as char
 }
 
-const CLEAR_RIGHT: &'static str = "\x1b[K";
 const INVERT_COLORS: &'static str = "\x1b[7m";
 const REVERT_COLORS: &'static str = "\x1b[m";
-const HIDE_CURSOR: &'static str = "\x1b[?25l";
+
+const RED:           &'static str = "\x1b[31m";
+const WHITE:         &'static str = "\x1b[37m";
+const DEFAULT_COLOR: &'static str = "\x1b[39m";
+
 const CURSOR_TOP_RIGHT: &'static str = "\x1b[H";
+
+const HIDE_CURSOR: &'static str = "\x1b[?25l";
 const SHOW_CURSOR: &'static str = "\x1b[?25h";
+
+const CLEAR_RIGHT: &'static str = "\x1b[K";
 const CLEAR_SCREEN: &'static str = "\x1b[2J";
 
 /// * data **
@@ -41,7 +48,7 @@ struct EditorConfig {
     cursor_y: usize,
     screen_rows: usize,
     screen_cols: usize,
-    rows: Vec<String>,
+    rows: Vec<Vec<(char, EditorHighlight)>>,
     row_offset: usize,
     col_offset: usize,
     orig_termios: Termios,
@@ -82,6 +89,23 @@ impl EditorConfig {
                 modified: false,
                 quit_times: 3,
             }
+        }
+    }
+}
+
+
+
+#[derive(Copy, Clone, PartialEq)]
+enum EditorHighlight {
+    Normal,
+    Number,
+}
+
+impl EditorHighlight {
+    fn color(&self) -> &str {
+        match *self {
+            EditorHighlight::Normal => DEFAULT_COLOR,
+            EditorHighlight::Number => RED,
         }
     }
 }
@@ -174,13 +198,38 @@ fn editor_read_key() -> EditorKey {
     EditorKey::Verbatim(c)
 }
 
+/// * row operations **
+
+
+type Row = Vec<(char, EditorHighlight)>;
+
+fn row_to_string(row: &Row) -> String {
+    row.iter().map(|&(c, _)| c).collect::<String>()
+}
+
+fn string_to_row(s: &str) -> Row {
+    let mut row = s.chars().map(|c|(c, EditorHighlight::Normal)).collect();
+    update_row(&mut row);
+    row
+}
+
+fn update_row(row: &mut Row) {
+    for i in 0..row.len() {
+        if row[i].0.is_digit(10) {
+            row[i].1 = EditorHighlight::Number
+        }
+    }
+}
+
+
 /// * editor operations **
 
 fn editor_insert_char(editor_config: &mut EditorConfig, c: char) {
     if editor_config.cursor_y == editor_config.rows.len() {
-        editor_config.rows.push("".to_string());
+        editor_config.rows.push(Vec::new());
     }
-    editor_config.rows[editor_config.cursor_y].insert(editor_config.cursor_x, c);
+    editor_config.rows[editor_config.cursor_y].insert(editor_config.cursor_x, (c, EditorHighlight::Normal));
+    update_row(&mut editor_config.rows[editor_config.cursor_y]);
     editor_config.cursor_x += 1;
     editor_config.modified = true;
 }
@@ -190,7 +239,7 @@ fn editor_insert_newline(editor_config: &mut EditorConfig) {
         let next_row = editor_config.rows[editor_config.cursor_y].split_off(editor_config.cursor_x);
         editor_config.rows.insert(editor_config.cursor_y + 1, next_row);
     } else {
-        editor_config.rows.push(String::new());
+        editor_config.rows.push(Vec::new());
     }
     editor_config.cursor_y += 1;
     editor_config.cursor_x = 0;
@@ -204,7 +253,7 @@ fn editor_delete_char(editor_config: &mut EditorConfig) {
     } else if 0 < editor_config.cursor_y && editor_config.cursor_y < editor_config.rows.len() {
         editor_config.cursor_x = editor_config.rows[editor_config.cursor_y - 1].len();
         let append_line = editor_config.rows[editor_config.cursor_y].clone();
-        editor_config.rows[editor_config.cursor_y - 1].push_str(&append_line);
+        editor_config.rows[editor_config.cursor_y - 1].extend(&append_line);
         editor_config.rows.remove(editor_config.cursor_y);
         editor_config.cursor_y -= 1;
     };
@@ -220,7 +269,7 @@ fn editor_open(editor_config: &mut EditorConfig, filename: &str) -> io::Result<(
     for byte in file.bytes() {
         let c = byte? as char;
         if c == '\n' {
-            editor_config.rows.push(contents);
+            editor_config.rows.push(string_to_row(&contents));
             contents = String::new();
         } else {
             contents.push(c);
@@ -242,7 +291,7 @@ fn editor_save(editor_config: &mut EditorConfig) -> io::Result<()> {
 
     let filename = editor_config.filename.clone().unwrap();
     let mut file = File::create(filename)?;
-    let mut text = editor_config.rows.join("\n");
+    let mut text = editor_config.rows.iter().map(row_to_string).collect::<Vec<_>>().join("\n");
     text.push('\n');
     file.write_all(text.as_bytes())?;
     editor_config.modified = false;
@@ -255,33 +304,32 @@ fn editor_save(editor_config: &mut EditorConfig) -> io::Result<()> {
 
 fn editor_find_callback(editor_config: &mut EditorConfig, query: &str, key: EditorKey) {
     if key != EditorKey::Verbatim('\r') && key != EditorKey::Verbatim('\x1b') {
-        let match_line =
-        if key == EditorKey::ArrowRight || key == EditorKey::ArrowDown {
-            let potential_match =
-            if editor_config.cursor_y < editor_config.rows.len() - 1 {
-                editor_config.rows[editor_config.cursor_y+1..]
-                .iter()
-                .position(|row| row.contains(query))
-                .map(|offset| offset + editor_config.cursor_y + 1)
+        let match_line = if key == EditorKey::ArrowRight || key == EditorKey::ArrowDown {
+            let potential_match = if editor_config.cursor_y < editor_config.rows.len() - 1 {
+                editor_config.rows[editor_config.cursor_y + 1..]
+                    .iter()
+                    .position(|row| row_to_string(row).contains(query))
+                    .map(|offset| offset + editor_config.cursor_y + 1)
             } else {
                 None
             };
-            potential_match.or(editor_config.rows.iter().position(|row| row.contains(query)))
+            potential_match.or(editor_config.rows.iter()
+                              .position(|row| row_to_string(row).contains(query)))
         } else if key == EditorKey::ArrowLeft || key == EditorKey::ArrowUp {
-            let potential_match =
-            if editor_config.cursor_y > 1 {
+            let potential_match = if editor_config.cursor_y > 1 {
                 editor_config.rows[..editor_config.cursor_y]
-                .iter()
-                .rposition(|row| row.contains(query))
+                    .iter()
+                    .rposition(|row| row_to_string(row).contains(query))
             } else {
                 None
             };
-            potential_match.or(editor_config.rows.iter().rposition(|row| row.contains(query)))
+            potential_match.or(editor_config.rows.iter()
+                              .rposition(|row| row_to_string(row).contains(query)))
         } else {
-            editor_config.rows.iter().position(|row| row.contains(query))
+            editor_config.rows.iter().position(|row| row_to_string(row).contains(query))
         };
         if let Some(match_line) = match_line {
-            let match_index = editor_config.rows[match_line]
+            let match_index = row_to_string(&editor_config.rows[match_line])
                                   .find(query)
                                   .expect("We just checked the row contained the string.");
             editor_config.cursor_y = match_line;
@@ -325,16 +373,26 @@ fn editor_scroll(editor_config: &mut EditorConfig) {
 }
 
 fn editor_draw_rows(editor_config: &EditorConfig, append_buffer: &mut String) {
+    let tab = &" ".repeat(TAB_STOP);
     for y in 0..editor_config.screen_rows {
         let file_row = y + editor_config.row_offset;
         if file_row < editor_config.rows.len() {
             let ref current_row = editor_config.rows[file_row];
             if editor_config.col_offset < current_row.len() {
-                let mut to_draw = (&current_row[editor_config.col_offset..]).to_string();
-                to_draw.truncate(editor_config.screen_cols);
-                let tab = " ".repeat(TAB_STOP);
-                let to_draw = to_draw.replace('\t', &tab);
-                append_buffer.push_str(&to_draw);
+                let mut current_hl = EditorHighlight::Normal;
+                for &(c, hl) in current_row.iter()
+                                    .skip(editor_config.col_offset)
+                                    .take(editor_config.screen_cols) {
+                    if hl != current_hl {
+                        current_hl = hl;
+                        append_buffer.push_str(hl.color());
+                    }
+                    if c == '\t' {
+                        append_buffer.push_str(tab);
+                    } else {
+                        append_buffer.push(c);
+                    }
+                }
             }
         } else if editor_config.rows.len() == 0 && y == editor_config.screen_rows / 3 {
             let welcome = format!("Isaac's editor -- version {}", IED_VERSION);
@@ -462,7 +520,7 @@ fn render_x(editor_config: &EditorConfig) -> usize {
     if editor_config.cursor_y < editor_config.rows.len() {
         let mut row = editor_config.rows[editor_config.cursor_y].clone();
         row.truncate(editor_config.cursor_x);
-        row.matches('\t').count() * (TAB_STOP - 1)
+        row.iter().filter(|&&(c, _)| c == '\t').count() * (TAB_STOP - 1)
     } else {
         0
     }

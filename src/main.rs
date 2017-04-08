@@ -255,7 +255,32 @@ fn editor_save(editor_config: &mut EditorConfig) -> io::Result<()> {
 
 fn editor_find_callback(editor_config: &mut EditorConfig, query: &str, key: EditorKey) {
     if key != EditorKey::Verbatim('\r') && key != EditorKey::Verbatim('\x1b') {
-        if let Some(match_line) = editor_config.rows.iter().position(|row| row.contains(query)) {
+        let match_line =
+        if key == EditorKey::ArrowRight || key == EditorKey::ArrowDown {
+            let potential_match =
+            if editor_config.cursor_y < editor_config.rows.len() - 1 {
+                editor_config.rows[editor_config.cursor_y+1..]
+                .iter()
+                .position(|row| row.contains(query))
+                .map(|offset| offset + editor_config.cursor_y + 1)
+            } else {
+                None
+            };
+            potential_match.or(editor_config.rows.iter().position(|row| row.contains(query)))
+        } else if key == EditorKey::ArrowLeft || key == EditorKey::ArrowUp {
+            let potential_match =
+            if editor_config.cursor_y > 1 {
+                editor_config.rows[..editor_config.cursor_y]
+                .iter()
+                .rposition(|row| row.contains(query))
+            } else {
+                None
+            };
+            potential_match.or(editor_config.rows.iter().rposition(|row| row.contains(query)))
+        } else {
+            editor_config.rows.iter().position(|row| row.contains(query))
+        };
+        if let Some(match_line) = match_line {
             let match_index = editor_config.rows[match_line]
                                   .find(query)
                                   .expect("We just checked the row contained the string.");
@@ -267,9 +292,21 @@ fn editor_find_callback(editor_config: &mut EditorConfig, query: &str, key: Edit
 }
 
 fn editor_find(editor_config: &mut EditorConfig) {
-    let _query = editor_prompt(editor_config,
-                               "Search (ESC to cancel):",
-                               Some(&editor_find_callback));
+    let saved_cursor_x = editor_config.cursor_x;
+    let saved_cursor_y = editor_config.cursor_y;
+    let saved_col_offset = editor_config.col_offset;
+    let saved_row_offset = editor_config.row_offset;
+
+    let query = editor_prompt(editor_config,
+                              "Search (ESC/Arrows/Enter):",
+                              Some(&editor_find_callback));
+
+    if query.is_none() {
+        editor_config.cursor_x = saved_cursor_x;
+        editor_config.cursor_y = saved_cursor_y;
+        editor_config.col_offset = saved_col_offset;
+        editor_config.row_offset = saved_row_offset;
+    }
 }
 
 /// * output **

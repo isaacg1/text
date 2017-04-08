@@ -102,7 +102,7 @@ enum EditorKey {
 
 /// * terminal **
 fn enable_raw_mode() -> io::Result<Termios> {
-    let orig_termios = Termios::from_fd(STDIN)?;;
+    let orig_termios = Termios::from_fd(STDIN)?;
 
     let mut termios = orig_termios.clone();
 
@@ -113,7 +113,7 @@ fn enable_raw_mode() -> io::Result<Termios> {
     termios.c_cc[VMIN] = 0; // Return on any characters read;
     termios.c_cc[VTIME] = 1; //Wait for 0.1 seconds.
 
-    tcsetattr(STDIN, TCSAFLUSH, &mut termios)?;;
+    tcsetattr(STDIN, TCSAFLUSH, &mut termios)?;
 
     Ok(orig_termios)
 }
@@ -215,7 +215,7 @@ fn editor_delete_char(editor_config: &mut EditorConfig) {
 
 fn editor_open(editor_config: &mut EditorConfig, filename: &str) -> io::Result<()> {
     editor_config.filename = Some(filename.to_string());
-    let file = File::open(filename)?;;
+    let file = File::open(filename)?;
     let mut contents = String::new();
     for byte in file.bytes() {
         let c = byte? as char;
@@ -231,7 +231,7 @@ fn editor_open(editor_config: &mut EditorConfig, filename: &str) -> io::Result<(
 
 fn editor_save(editor_config: &mut EditorConfig) -> io::Result<()> {
     if editor_config.filename.is_none() {
-        match editor_prompt(editor_config, "Save as: ") {
+        match editor_prompt(editor_config, "Save as: ", None) {
             None => {
                 editor_set_status_message(editor_config, "Save aborted");
                 return Ok(());
@@ -241,10 +241,10 @@ fn editor_save(editor_config: &mut EditorConfig) -> io::Result<()> {
     }
 
     let filename = editor_config.filename.clone().unwrap();
-    let mut file = File::create(filename)?;;
+    let mut file = File::create(filename)?;
     let mut text = editor_config.rows.join("\n");
     text.push('\n');
-    file.write_all(text.as_bytes())?;;
+    file.write_all(text.as_bytes())?;
     editor_config.modified = false;
     editor_set_status_message(editor_config,
                               &mut format!("{} bytes written to disk", text.len()));
@@ -253,18 +253,23 @@ fn editor_save(editor_config: &mut EditorConfig) -> io::Result<()> {
 
 /// * find **
 
-fn editor_find(editor_config: &mut EditorConfig) {
-    let query = editor_prompt(editor_config, "Search (ESC to cancel):");
-    if let Some(query) = query {
-        if let Some(match_line) = editor_config.rows.iter().position(|row| row.contains(&query)) {
+fn editor_find_callback(editor_config: &mut EditorConfig, query: &str, key: EditorKey) {
+    if key != EditorKey::Verbatim('\r') && key != EditorKey::Verbatim('\x1b') {
+        if let Some(match_line) = editor_config.rows.iter().position(|row| row.contains(query)) {
             let match_index = editor_config.rows[match_line]
-                                  .find(&query)
+                                  .find(query)
                                   .expect("We just checked the row contained the string.");
             editor_config.cursor_y = match_line;
             editor_config.cursor_x = match_index;
             editor_config.row_offset = editor_config.rows.len();
         }
     }
+}
+
+fn editor_find(editor_config: &mut EditorConfig) {
+    let _query = editor_prompt(editor_config,
+                               "Search (ESC to cancel):",
+                               Some(&editor_find_callback));
 }
 
 /// * output **
@@ -375,7 +380,10 @@ fn editor_set_status_message(editor_config: &mut EditorConfig, message: &str) {
 
 /// * input **
 
-fn editor_prompt(editor_config: &mut EditorConfig, prompt: &str) -> Option<String> {
+fn editor_prompt(editor_config: &mut EditorConfig,
+                 prompt: &str,
+                 callback: Option<&Fn(&mut EditorConfig, &str, EditorKey) -> ()>)
+                 -> Option<String> {
     let mut response = String::new();
     loop {
         editor_set_status_message(editor_config, &format!("{}{}", prompt, response));
@@ -384,10 +392,16 @@ fn editor_prompt(editor_config: &mut EditorConfig, prompt: &str) -> Option<Strin
         let c = editor_read_key();
         if c == EditorKey::Verbatim('\x1b') {
             editor_set_status_message(editor_config, "");
+            if let Some(callback) = callback {
+                callback(editor_config, &response, c)
+            };
             return None;
         } else if c == EditorKey::Verbatim('\r') {
             if response.len() > 0 {
                 editor_set_status_message(editor_config, "");
+                if let Some(callback) = callback {
+                    callback(editor_config, &response, c)
+                };
                 return Some(response);
             }
         } else if c == EditorKey::Delete || c == EditorKey::Verbatim(ctrl_key('h')) ||
@@ -400,6 +414,9 @@ fn editor_prompt(editor_config: &mut EditorConfig, prompt: &str) -> Option<Strin
                 response.push(c);
             }
         }
+        if let Some(callback) = callback {
+            callback(editor_config, &response, c)
+        };
     }
 }
 
@@ -516,7 +533,7 @@ fn editor_process_keypress(editor_config: &mut EditorConfig) -> bool {
                                                   &mut format!("Saving failed with {}", e))
                     }
                 }
-            },
+            }
             EditorKey::Verbatim(chr) if chr == ctrl_key('f') => editor_find(editor_config),
             EditorKey::Verbatim(chr) => editor_insert_char(editor_config, chr),
         };
@@ -542,7 +559,8 @@ fn main() {
         }
     }
 
-    editor_set_status_message(&mut editor_config, "Help: Ctrl-S = save, Ctrl-Q = quit, Ctrl-F = find.");
+    editor_set_status_message(&mut editor_config,
+                              "Help: Ctrl-S = save, Ctrl-Q = quit, Ctrl-F = find.");
     loop {
         editor_refresh_screen(&mut editor_config);
         let to_continue = editor_process_keypress(&mut editor_config);

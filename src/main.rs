@@ -30,8 +30,15 @@ const INVERT_COLORS: &'static str = "\x1b[7m";
 const REVERT_COLORS: &'static str = "\x1b[m";
 
 const RED:           &'static str = "\x1b[31m";
+const MAGENTA:       &'static str = "\x1b[1m\x1b[35m";
 const WHITE:         &'static str = "\x1b[37m";
-const DEFAULT_COLOR: &'static str = "\x1b[39m";
+const CYAN:          &'static str = "\x1b[36m";
+const YELLOW:        &'static str = "\x1b[33m";
+const BRIGHT_YELLOW: &'static str = "\x1b[1m\x1b[33m";
+const GREEN:         &'static str = "\x1b[32m";
+const BRIGHT_GREEN:  &'static str = "\x1b[1m\x1b[32m";
+
+const BACK_BLUE:     &'static str = "\x1b[44m";
 
 const CURSOR_TOP_RIGHT: &'static str = "\x1b[H";
 
@@ -53,6 +60,7 @@ struct EditorConfig {
     col_offset: usize,
     orig_termios: Termios,
     filename: Option<String>,
+    syntax: Option<EditorSyntax>,
     status_message: String,
     status_message_time: Instant,
     modified: bool,
@@ -88,24 +96,37 @@ impl EditorConfig {
                 status_message_time: Instant::now(),
                 modified: false,
                 quit_times: 3,
+                syntax: None,
             }
         }
     }
 }
 
-
-
 #[derive(Copy, Clone, PartialEq)]
 enum EditorHighlight {
     Normal,
     Number,
+    Match,
+    String,
+    Comment,
+    Keyword1,
+    Keyword2,
+    Keyword3,
+    Keyword4,
 }
 
 impl EditorHighlight {
     fn color(&self) -> &str {
         match *self {
-            EditorHighlight::Normal => DEFAULT_COLOR,
-            EditorHighlight::Number => RED,
+            EditorHighlight::Normal   => REVERT_COLORS,
+            EditorHighlight::Number   => RED,
+            EditorHighlight::Match    => BACK_BLUE,
+            EditorHighlight::String   => MAGENTA,
+            EditorHighlight::Comment  => CYAN,
+            EditorHighlight::Keyword1 => YELLOW,
+            EditorHighlight::Keyword2 => GREEN,
+            EditorHighlight::Keyword3 => BRIGHT_GREEN,
+            EditorHighlight::Keyword4 => BRIGHT_YELLOW,
         }
     }
 }
@@ -122,6 +143,21 @@ enum EditorKey {
     Home,
     End,
     Delete,
+}
+
+/// * filetypes **
+
+#[derive(Clone)]
+struct EditorSyntax {
+    filetype: String,
+    extensions: Vec<String>,
+    has_digits: bool,
+    quotes: String,
+    singleline_comment: String,
+    keyword1s: Vec<String>,
+    keyword2s: Vec<String>,
+    keyword3s: Vec<String>,
+    keyword4s: Vec<String>,
 }
 
 /// * terminal **
@@ -198,6 +234,12 @@ fn editor_read_key() -> EditorKey {
     EditorKey::Verbatim(c)
 }
 
+/// * syntax highlighting **
+
+fn is_separator(c: char) -> bool {
+    c.is_whitespace() || "&{}'\",.()+-/*=~%<>[];".contains(c)
+}
+
 /// * row operations **
 
 
@@ -208,15 +250,117 @@ fn row_to_string(row: &Row) -> String {
 }
 
 fn string_to_row(s: &str) -> Row {
-    let mut row = s.chars().map(|c|(c, EditorHighlight::Normal)).collect();
-    update_row(&mut row);
-    row
+    s.chars().map(|c|(c, EditorHighlight::Normal)).collect()
 }
 
-fn update_row(row: &mut Row) {
-    for i in 0..row.len() {
-        if row[i].0.is_digit(10) {
-            row[i].1 = EditorHighlight::Number
+fn update_row(editor_config: &mut EditorConfig, row_index: usize) {
+    if let Some(syntax) = editor_config.syntax.clone() {
+        let ref mut row = editor_config.rows[row_index];
+        let mut index = 0;
+        let keyword_groups = vec!(syntax.keyword1s, syntax.keyword2s, syntax.keyword3s, syntax.keyword4s);
+        'outer: while index < row.len() {
+            let prev_is_digit_or_sep =
+                index == 0 ||
+                is_separator(row[index - 1].0) ||
+                row[index - 1].1 == EditorHighlight::Number;
+            if syntax.has_digits && row[index].0.is_digit(10) && prev_is_digit_or_sep {
+                row[index].1 = EditorHighlight::Number
+            } else if syntax.quotes.contains(row[index].0) {
+                let start_quote = row[index].0;
+                row[index].1 = EditorHighlight::String;
+                index += 1;
+                while index < row.len() {
+                    row[index].1 = EditorHighlight::String;
+                    if row[index].0 == start_quote { break };
+                    if row[index].0 == '\\' && index + 1 < row.len() {
+                        index += 1;
+                        row[index].1 = EditorHighlight::String;
+                    }
+                    index += 1;
+                }
+            } else if row_to_string(&row[index..].to_vec()).starts_with(&syntax.singleline_comment) {
+                for comment_index in index..row.len() {
+                    row[comment_index].1 = EditorHighlight::Comment;
+                }
+                break;
+            } else {
+                if index == 0 || is_separator(row[index - 1].0) {
+                    let following_string: String = row_to_string(&row[index..].to_vec());
+                    for (kind, keywords) in keyword_groups.iter().enumerate() {
+                        let highlight = match kind {
+                            0 => EditorHighlight::Keyword1,
+                            1 => EditorHighlight::Keyword2,
+                            2 => EditorHighlight::Keyword3,
+                            3 => EditorHighlight::Keyword4,
+                            _ => panic!("There should only be four things in the list."),
+                        };
+                        for keyword in keywords {
+                            if following_string.starts_with(keyword) && (
+                                index + keyword.len() >= row.len() ||
+                                is_separator(row[index + keyword.len()].0)) {
+                                let keyword_end = index + keyword.len();
+                                while index < keyword_end {
+                                    row[index].1 = highlight;
+                                    index += 1;
+                                };
+                                continue 'outer;
+                            }
+                        }
+                    }
+                }
+                row[index].1 = EditorHighlight::Normal
+            };
+            index += 1;
+        }
+    }
+}
+
+fn editor_select_syntax(editor_config: &mut EditorConfig) {
+    match editor_config.filename.clone() {
+        None => editor_config.syntax = None,
+        Some(filename) => {
+            let syntax_database = vec!(
+                EditorSyntax {
+                    filetype: "rust".to_string(),
+                    extensions: vec!(".rs".to_string()),
+                    has_digits: true,
+                    quotes: "\"".to_string(),
+                    singleline_comment: "//".to_string(),
+                    keyword1s: vec!("extern", "crate", "use", "as", "impl", "fn", "let",
+                                   "unsafe", "if", "else", "return", "while", "break", "continue",
+                                   "loop", "match")
+                               .iter().map(|x|x.to_string()).collect::<Vec<_>>(), // TODO: Complete
+                    keyword2s: vec!("const", "static", "struct", "mut", "enum", "ref", "type")
+                               .iter().map(|x|x.to_string()).collect::<Vec<_>>(), // TODO: Complete
+                    keyword3s: vec!("true", "false", "self")
+                               .iter().map(|x|x.to_string()).collect::<Vec<_>>(), // TODO: Complete
+                    keyword4s: vec!("str", "usize", "char", "u8", "bool")
+                               .iter().map(|x|x.to_string()).collect::<Vec<_>>(), // TODO: Complete
+                },
+                EditorSyntax {
+                    filetype: "c".to_string(),
+                    extensions: vec!(".c".to_string(), ".h".to_string(), ".cpp".to_string()),
+                    has_digits: true,
+                    quotes: "\"'".to_string(),
+                    singleline_comment: "//".to_string(),
+                    keyword1s: vec!(), // TODO: Complete
+                    keyword2s: vec!(), // TODO: Complete
+                    keyword3s: vec!(), // TODO: Complete
+                    keyword4s: vec!(), // TODO: Complete
+                },
+            );
+            for entry in syntax_database {
+                let extensions = entry.extensions.clone();
+                for extension in extensions {
+                    if filename.ends_with(&extension) {
+                        editor_config.syntax = Some(entry);
+                        for index in 0..editor_config.rows.len() {
+                            update_row(editor_config, index);
+                        }
+                        return
+                    }
+                }
+            }
         }
     }
 }
@@ -229,7 +373,8 @@ fn editor_insert_char(editor_config: &mut EditorConfig, c: char) {
         editor_config.rows.push(Vec::new());
     }
     editor_config.rows[editor_config.cursor_y].insert(editor_config.cursor_x, (c, EditorHighlight::Normal));
-    update_row(&mut editor_config.rows[editor_config.cursor_y]);
+    let index = editor_config.cursor_y;
+    update_row(editor_config, index);
     editor_config.cursor_x += 1;
     editor_config.modified = true;
 }
@@ -238,6 +383,9 @@ fn editor_insert_newline(editor_config: &mut EditorConfig) {
     if editor_config.cursor_y < editor_config.rows.len() {
         let next_row = editor_config.rows[editor_config.cursor_y].split_off(editor_config.cursor_x);
         editor_config.rows.insert(editor_config.cursor_y + 1, next_row);
+        let index = editor_config.cursor_y;
+        update_row(editor_config, index);
+        update_row(editor_config, index + 1);
     } else {
         editor_config.rows.push(Vec::new());
     }
@@ -249,11 +397,15 @@ fn editor_insert_newline(editor_config: &mut EditorConfig) {
 fn editor_delete_char(editor_config: &mut EditorConfig) {
     if editor_config.cursor_x > 0 {
         editor_config.rows[editor_config.cursor_y].remove(editor_config.cursor_x - 1);
+        let index = editor_config.cursor_y;
+        update_row(editor_config, index);
         editor_config.cursor_x -= 1;
     } else if 0 < editor_config.cursor_y && editor_config.cursor_y < editor_config.rows.len() {
         editor_config.cursor_x = editor_config.rows[editor_config.cursor_y - 1].len();
         let append_line = editor_config.rows[editor_config.cursor_y].clone();
         editor_config.rows[editor_config.cursor_y - 1].extend(&append_line);
+        let index = editor_config.cursor_y - 1;
+        update_row(editor_config, index);
         editor_config.rows.remove(editor_config.cursor_y);
         editor_config.cursor_y -= 1;
     };
@@ -264,12 +416,16 @@ fn editor_delete_char(editor_config: &mut EditorConfig) {
 
 fn editor_open(editor_config: &mut EditorConfig, filename: &str) -> io::Result<()> {
     editor_config.filename = Some(filename.to_string());
+    editor_select_syntax(editor_config);
     let file = File::open(filename)?;
     let mut contents = String::new();
     for byte in file.bytes() {
         let c = byte? as char;
         if c == '\n' {
-            editor_config.rows.push(string_to_row(&contents));
+            let row = string_to_row(&contents);
+            editor_config.rows.push(row);
+            let index = editor_config.rows.len() - 1;
+            update_row(editor_config, index);
             contents = String::new();
         } else {
             contents.push(c);
@@ -284,8 +440,11 @@ fn editor_save(editor_config: &mut EditorConfig) -> io::Result<()> {
             None => {
                 editor_set_status_message(editor_config, "Save aborted");
                 return Ok(());
-            }
-            s @ Some(_) => editor_config.filename = s,
+            },
+            s @ Some(_) => {
+                editor_config.filename = s;
+                editor_select_syntax(editor_config)
+            },
         }
     }
 
@@ -303,6 +462,10 @@ fn editor_save(editor_config: &mut EditorConfig) -> io::Result<()> {
 /// * find **
 
 fn editor_find_callback(editor_config: &mut EditorConfig, query: &str, key: EditorKey) {
+    if editor_config.cursor_y < editor_config.rows.len() {
+        let index = editor_config.cursor_y;
+        update_row(editor_config, index)
+    }
     if key != EditorKey::Verbatim('\r') && key != EditorKey::Verbatim('\x1b') {
         let match_line = if key == EditorKey::ArrowRight || key == EditorKey::ArrowDown {
             let potential_match = if editor_config.cursor_y < editor_config.rows.len() - 1 {
@@ -335,6 +498,9 @@ fn editor_find_callback(editor_config: &mut EditorConfig, query: &str, key: Edit
             editor_config.cursor_y = match_line;
             editor_config.cursor_x = match_index;
             editor_config.row_offset = editor_config.rows.len();
+            for elem in editor_config.rows[match_line][match_index..][..query.len()].iter_mut() {
+                elem.1 = EditorHighlight::Match
+            }
         }
     }
 }
@@ -346,7 +512,7 @@ fn editor_find(editor_config: &mut EditorConfig) {
     let saved_row_offset = editor_config.row_offset;
 
     let query = editor_prompt(editor_config,
-                              "Search (ESC/Arrows/Enter):",
+                              "Search (ESC/Arrows/Enter): ",
                               Some(&editor_find_callback));
 
     if query.is_none() {
@@ -393,6 +559,7 @@ fn editor_draw_rows(editor_config: &EditorConfig, append_buffer: &mut String) {
                         append_buffer.push(c);
                     }
                 }
+                append_buffer.push_str(REVERT_COLORS);
             }
         } else if editor_config.rows.len() == 0 && y == editor_config.screen_rows / 3 {
             let welcome = format!("Isaac's editor -- version {}", IED_VERSION);
@@ -428,7 +595,12 @@ fn editor_draw_status_bar(editor_config: &EditorConfig, append_buffer: &mut Stri
     let mut status = format!("{} - {} lines {}", name, editor_config.rows.len(), dirty);
     status.truncate(editor_config.screen_cols);
     append_buffer.push_str(&status);
-    let mut right_status = format!("{}/{}",
+    let filetype = match editor_config.syntax {
+        None => "no ft".to_string(),
+        Some(ref syntax) => syntax.filetype.clone(),
+    };
+    let mut right_status = format!("{} | {}/{}",
+                                   filetype,
                                    editor_config.cursor_y + 1,
                                    editor_config.rows.len());
     right_status.truncate(editor_config.screen_cols - status.len() - 1);

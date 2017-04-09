@@ -556,7 +556,16 @@ fn editor_draw_rows(editor_config: &EditorConfig, append_buffer: &mut String) {
                     if c == '\t' {
                         append_buffer.push_str(tab);
                     } else {
-                        append_buffer.push(c);
+                        if c.is_control() {
+                            append_buffer.push_str(INVERT_COLORS);
+                            let sym = if c as u8 <= 26 { (64 + (c as u8)) as char } else { '?' };
+                            append_buffer.push(sym);
+                            append_buffer.push_str(REVERT_COLORS);
+                            append_buffer.push_str(hl.color());
+                        } else {
+                            append_buffer.push(c);
+                        }
+
                     }
                 }
                 append_buffer.push_str(REVERT_COLORS);

@@ -8,7 +8,7 @@ use std::env;
 
 use std::time::Instant;
 
-use std::cmp::min;
+use std::collections::HashMap;
 
 use std::os::raw::c_int;
 use termios::*;
@@ -29,16 +29,16 @@ fn ctrl_key(k: char) -> char {
 const INVERT_COLORS: &'static str = "\x1b[7m";
 const REVERT_COLORS: &'static str = "\x1b[m";
 
-const RED: &'static str = "\x1b[31m";
-const MAGENTA: &'static str = "\x1b[1m\x1b[35m";
-const WHITE: &'static str = "\x1b[37m";
-const CYAN: &'static str = "\x1b[36m";
-const YELLOW: &'static str = "\x1b[33m";
-const BRIGHT_YELLOW: &'static str = "\x1b[1m\x1b[33m";
-const GREEN: &'static str = "\x1b[32m";
-const BRIGHT_GREEN: &'static str = "\x1b[1m\x1b[32m";
+const RED: &'static str = "\x1b[31m\x1b[49m";
+const MAGENTA: &'static str = "\x1b[1m\x1b[35m\x1b[49m";
+const WHITE: &'static str = "\x1b[37m\x1b[49m";
+const CYAN: &'static str = "\x1b[36m\x1b[49m";
+const YELLOW: &'static str = "\x1b[33m\x1b[49m";
+const BRIGHT_YELLOW: &'static str = "\x1b[1m\x1b[33m\x1b[49m";
+const GREEN: &'static str = "\x1b[32m\x1b[49m";
+const BRIGHT_GREEN: &'static str = "\x1b[1m\x1b[32m\x1b[49m";
 
-const BACK_BLUE: &'static str = "\x1b[44m";
+const BACK_BLUE: &'static str = "\x1b[39m\x1b[44m";
 
 const CURSOR_TOP_RIGHT: &'static str = "\x1b[H";
 
@@ -65,6 +65,7 @@ struct EditorConfig {
     status_message_time: Instant,
     modified: bool,
     quit_times: usize,
+    folds: HashMap<usize, (usize, usize)>,
 }
 
 impl EditorConfig {
@@ -97,6 +98,7 @@ impl EditorConfig {
                 modified: false,
                 quit_times: 3,
                 syntax: None,
+                folds: HashMap::new(),
             }
         }
     }
@@ -231,6 +233,80 @@ fn editor_read_key() -> EditorKey {
         };
     };
     EditorKey::Verbatim(c)
+}
+
+/// * folding **
+
+fn toggle_fold(editor_config: &mut EditorConfig) {
+    if editor_config.folds.contains_key(&editor_config.cursor_y) {
+        editor_config.folds.remove(&editor_config.cursor_y);
+    } else {
+        create_fold(editor_config);
+    }
+}
+fn create_fold(editor_config: &mut EditorConfig) {
+    if editor_config.cursor_y < editor_config.rows.len() {
+        let fold_depth = whitespace_depth(&editor_config.rows[editor_config.cursor_y]);
+        let mut back_index = editor_config.cursor_y;
+        let start;
+        loop {
+            let depth = whitespace_depth(&editor_config.rows[back_index]);
+            if depth < fold_depth && editor_config.rows[back_index].len() > 0 {
+                start = back_index + 1;
+                break;
+            }
+            if back_index == 0 {
+                start = 0;
+                break;
+            }
+            back_index -= 1;
+        }
+        let mut forward_index = editor_config.cursor_y;
+        let end;
+        loop {
+            let depth = whitespace_depth(&editor_config.rows[forward_index]);
+            if depth < fold_depth && editor_config.rows[forward_index].len() > 0 {
+                end = forward_index - 1;
+                break;
+            }
+            if forward_index == editor_config.rows.len() - 1 {
+                end = editor_config.rows.len() - 1;
+                break;
+            }
+            forward_index += 1;
+        }
+        editor_config.folds.insert(start, (end, fold_depth));
+        editor_config.cursor_y = start;
+    }
+}
+
+fn open_folds(editor_config: &mut EditorConfig) {
+    for (&start, &(end, _depth)) in editor_config.folds.clone().iter() {
+        if start <= editor_config.cursor_y && editor_config.cursor_y <= end {
+            editor_config.folds.remove(&start);
+        }
+    }
+}
+
+fn one_row_forward(editor_config: &EditorConfig, index: usize) -> usize {
+    match editor_config.folds.get(&index) {
+        None => index + 1,
+        Some(&(end, _depth)) => end + 1,
+    }
+}
+
+fn one_row_back(editor_config: &EditorConfig, index: usize) -> usize {
+    if index > 0 {
+        if let Some((&start, _end_and_depth)) = editor_config.folds.iter()
+                .filter(|&(_start, &(end, _depth))| end == editor_config.cursor_y - 1)
+                .next() {
+            start
+        } else {
+            index - 1
+        }
+    } else {
+        0
+    }
 }
 
 /// * syntax highlighting **
@@ -522,13 +598,24 @@ fn editor_find_callback(editor_config: &mut EditorConfig, query: &str, key: Edit
                                             .iter()
                                             .rposition(|row| row_to_string(row).contains(query)))
         } else {
-            editor_config.rows.iter().position(|row| row_to_string(row).contains(query))
+            let potential_match = if editor_config.cursor_y < editor_config.rows.len() - 1 {
+                editor_config.rows[editor_config.cursor_y..]
+                    .iter()
+                    .position(|row| row_to_string(row).contains(query))
+                    .map(|offset| offset + editor_config.cursor_y)
+            } else {
+                None
+            };
+            potential_match.or(editor_config.rows
+                                            .iter()
+                                            .position(|row| row_to_string(row).contains(query)))
         };
         if let Some(match_line) = match_line {
             let match_index = row_to_string(&editor_config.rows[match_line])
                                   .find(query)
                                   .expect("We just checked the row contained the string.");
             editor_config.cursor_y = match_line;
+            open_folds(editor_config);
             editor_config.cursor_x = match_index;
             editor_config.row_offset = editor_config.rows.len();
             for elem in editor_config.rows[match_line][match_index..][..query.len()].iter_mut() {
@@ -561,8 +648,10 @@ fn editor_find(editor_config: &mut EditorConfig) {
 fn editor_scroll(editor_config: &mut EditorConfig) {
     if editor_config.cursor_y < editor_config.row_offset {
         editor_config.row_offset = editor_config.cursor_y
-    } else if editor_config.cursor_y >= editor_config.row_offset + editor_config.screen_rows {
-        editor_config.row_offset = editor_config.cursor_y - editor_config.screen_rows + 1;
+    } else if screen_line_y(editor_config) >= editor_config.screen_rows {
+        while screen_line_y(editor_config) >= editor_config.screen_rows {
+            editor_config.row_offset = one_row_forward(editor_config, editor_config.row_offset);
+        }
     }
     if editor_config.cursor_x < editor_config.col_offset {
         editor_config.col_offset = editor_config.cursor_x
@@ -573,9 +662,22 @@ fn editor_scroll(editor_config: &mut EditorConfig) {
 
 fn editor_draw_rows(editor_config: &EditorConfig, append_buffer: &mut String) {
     let tab = &" ".repeat(TAB_STOP);
-    for y in 0..editor_config.screen_rows {
-        let file_row = y + editor_config.row_offset;
-        if file_row < editor_config.rows.len() {
+    let mut screen_y = 0;
+    let mut file_row = editor_config.row_offset;
+    while screen_y < editor_config.screen_rows {
+        if let Some(&(fold_end, fold_depth)) = editor_config.folds.get(&file_row) {
+            let fold_white = editor_config.rows[file_row][..fold_depth].to_vec();
+            let fold_white_str = row_to_string(&fold_white).replace("\t", tab);
+            append_buffer.push_str(&fold_white_str);
+            append_buffer.push_str(INVERT_COLORS);
+            let fold_msg = format!("{} lines folded.", fold_end - file_row + 1);
+            append_buffer.push_str(&fold_msg);
+            for _ in 0..editor_config.screen_cols - fold_msg.len() - fold_white_str.len() {
+                append_buffer.push(' ');
+            }
+            append_buffer.push_str(REVERT_COLORS);
+            file_row = fold_end + 1;
+        } else if file_row < editor_config.rows.len() {
             let ref current_row = editor_config.rows[file_row];
             if editor_config.col_offset < current_row.len() {
                 let mut current_hl = EditorHighlight::Normal;
@@ -602,12 +704,12 @@ fn editor_draw_rows(editor_config: &EditorConfig, append_buffer: &mut String) {
                         } else {
                             append_buffer.push(c);
                         }
-
                     }
                 }
                 append_buffer.push_str(REVERT_COLORS);
             }
-        } else if editor_config.rows.len() == 0 && y == editor_config.screen_rows / 3 {
+            file_row += 1;
+        } else if editor_config.rows.len() == 0 && screen_y == editor_config.screen_rows / 3 {
             let welcome = format!("Isaac's editor -- version {}", IED_VERSION);
             let padding = if welcome.len() < editor_config.screen_cols {
                 (editor_config.screen_cols - welcome.len()) / 2
@@ -621,11 +723,14 @@ fn editor_draw_rows(editor_config: &EditorConfig, append_buffer: &mut String) {
                 }
             }
             append_buffer.push_str(&welcome);
+            file_row += 1;
         } else {
             append_buffer.push('~');
+            file_row += 1;
         };
         append_buffer.push_str(CLEAR_RIGHT);
         append_buffer.push_str("\r\n");
+        screen_y += 1;
     }
 }
 
@@ -678,7 +783,7 @@ fn editor_refresh_screen(editor_config: &mut EditorConfig) {
     editor_draw_message_bar(editor_config, &mut append_buffer);
 
     let cursor_control = format!("\x1b[{};{}H",
-                                 (editor_config.cursor_y - editor_config.row_offset) + 1,
+                                 screen_line_y(editor_config) + 1,
                                  (render_x(editor_config) - editor_config.col_offset) + 1);
     append_buffer.push_str(&cursor_control);
     append_buffer.push_str(SHOW_CURSOR);
@@ -744,6 +849,16 @@ fn render_x(editor_config: &EditorConfig) -> usize {
     }
 }
 
+fn screen_line_y(editor_config: &EditorConfig) -> usize {
+    let mut file_y = editor_config.row_offset;
+    let mut screen_y = 0;
+    while file_y < editor_config.cursor_y {
+        file_y = one_row_forward(editor_config, file_y);
+        screen_y += 1;
+    }
+    screen_y
+}
+
 fn editor_move_cursor(editor_config: &mut EditorConfig, key: EditorKey) {
     let row_len = if editor_config.rows.len() > editor_config.cursor_y {
         editor_config.rows[editor_config.cursor_y].len()
@@ -754,12 +869,12 @@ fn editor_move_cursor(editor_config: &mut EditorConfig, key: EditorKey) {
     match key {
         EditorKey::ArrowUp => {
             if editor_config.cursor_y > 0 {
-                editor_config.cursor_y -= 1
+                editor_config.cursor_y = one_row_back(editor_config, editor_config.cursor_y);
             }
         }
         EditorKey::ArrowDown => {
             if editor_config.cursor_y < editor_config.rows.len() {
-                editor_config.cursor_y += 1
+                editor_config.cursor_y = one_row_forward(editor_config, editor_config.cursor_y);
             }
         }
         EditorKey::ArrowLeft => {
@@ -790,9 +905,7 @@ fn editor_move_cursor(editor_config: &mut EditorConfig, key: EditorKey) {
             }
         }
         EditorKey::PageDown => {
-            editor_config.cursor_y = min(editor_config.rows.len(),
-                                         editor_config.row_offset + editor_config.screen_rows - 1);
-            for _ in 0..editor_config.screen_rows {
+            for _ in 0..(editor_config.screen_rows*2 - 1) {
                 editor_move_cursor(editor_config, EditorKey::ArrowDown)
             }
         }
@@ -848,6 +961,7 @@ fn editor_process_keypress(editor_config: &mut EditorConfig) -> bool {
                 }
             }
             EditorKey::Verbatim(chr) if chr == ctrl_key('f') => editor_find(editor_config),
+            EditorKey::Verbatim(chr) if chr == ctrl_key(' ') => toggle_fold(editor_config),
             EditorKey::Verbatim(chr) => editor_insert_char(editor_config, chr),
         };
         editor_config.quit_times = 3;

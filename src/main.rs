@@ -239,6 +239,15 @@ fn is_separator(c: char) -> bool {
     c.is_whitespace() || "&{}'\",.()+-/*=~%<>[];".contains(c)
 }
 
+fn whitespace_depth(row: &Row) -> usize {
+    for index in 0..row.len() {
+        if !row[index].0.is_whitespace() {
+            return index;
+        }
+    }
+    return row.len();
+}
+
 /// * row operations **
 
 
@@ -331,11 +340,11 @@ fn editor_select_syntax(editor_config: &mut EditorConfig) {
                     keyword1s: vec!("extern", "crate", "use", "as", "impl", "fn", "let",
                                    "unsafe", "if", "else", "return", "while", "break", "continue",
                                    "loop", "match")
-                               .iter().map(|x|x.to_string()).collect::<Vec<_>>(), // TODO: Complete
+                               .iter().map(|x|x.to_string()).collect::<Vec<_>>(),
                     keyword2s: vec!("const", "static", "struct", "mut", "enum", "ref", "type")
-                               .iter().map(|x|x.to_string()).collect::<Vec<_>>(), // TODO: Complete
+                               .iter().map(|x|x.to_string()).collect::<Vec<_>>(),
                     keyword3s: vec!("true", "false", "self")
-                               .iter().map(|x|x.to_string()).collect::<Vec<_>>(), // TODO: Complete
+                               .iter().map(|x|x.to_string()).collect::<Vec<_>>(),
                     keyword4s: vec!("str", "usize", "char", "u8", "bool")
                                .iter().map(|x|x.to_string()).collect::<Vec<_>>(), // TODO: Complete
                 },
@@ -384,16 +393,34 @@ fn editor_insert_char(editor_config: &mut EditorConfig, c: char) {
 
 fn editor_insert_newline(editor_config: &mut EditorConfig) {
     if editor_config.cursor_y < editor_config.rows.len() {
-        let next_row = editor_config.rows[editor_config.cursor_y].split_off(editor_config.cursor_x);
+        let depth;
+        let mut next_row;
+        let will_clear_row;
+        {
+            let ref row = editor_config.rows[editor_config.cursor_y];
+            depth = whitespace_depth(row);
+            next_row = row[..depth].to_vec();
+            will_clear_row = row.len() == depth && editor_config.cursor_x == row.len();
+        }
+
+        let row_end = editor_config.rows[editor_config.cursor_y].split_off(editor_config.cursor_x);
+        next_row.extend(row_end);
         editor_config.rows.insert(editor_config.cursor_y + 1, next_row);
+
+        if will_clear_row {
+            editor_config.rows[editor_config.cursor_y] = Vec::new();
+        }
+
         let index = editor_config.cursor_y;
         update_row(editor_config, index);
         update_row(editor_config, index + 1);
+
+        editor_config.cursor_x = depth;
     } else {
         editor_config.rows.push(Vec::new());
+        editor_config.cursor_x = 0;
     }
     editor_config.cursor_y += 1;
-    editor_config.cursor_x = 0;
     editor_config.modified = true;
 }
 

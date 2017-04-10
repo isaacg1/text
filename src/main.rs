@@ -297,13 +297,12 @@ fn one_row_forward(editor_config: &EditorConfig, index: usize) -> usize {
 
 fn one_row_back(editor_config: &EditorConfig, index: usize) -> usize {
     if index > 0 {
-        if let Some((&start, _end_and_depth)) = editor_config.folds
-                                                             .iter()
-                                                             .filter(|&(_start,
-                                                                        &(end, _depth))| {
-                                                                 end == editor_config.cursor_y - 1
-                                                             })
-                                                             .next() {
+        if let Some((&start, _end_and_depth)) =
+            editor_config
+                .folds
+                .iter()
+                .filter(|&(_start, &(end, _depth))| end == editor_config.cursor_y - 1)
+                .next() {
             start
         } else {
             index - 1
@@ -338,7 +337,9 @@ fn row_to_string(row: &Row) -> String {
 }
 
 fn string_to_row(s: &str) -> Row {
-    s.chars().map(|c| (c, EditorHighlight::Normal)).collect()
+    s.chars()
+        .map(|c| (c, EditorHighlight::Normal))
+        .collect()
 }
 
 fn update_row(editor_config: &mut EditorConfig, row_index: usize) {
@@ -369,7 +370,8 @@ fn update_row(editor_config: &mut EditorConfig, row_index: usize) {
                     }
                     index += 1;
                 }
-            } else if row_to_string(&row[index..].to_vec()).starts_with(&syntax.singleline_comment) {
+            } else if row_to_string(&row[index..].to_vec())
+                          .starts_with(&syntax.singleline_comment) {
                 for comment_index in index..row.len() {
                     row[comment_index].1 = EditorHighlight::Comment;
                 }
@@ -410,36 +412,43 @@ fn editor_select_syntax(editor_config: &mut EditorConfig) {
     match editor_config.filename.clone() {
         None => editor_config.syntax = None,
         Some(filename) => {
-            let syntax_database = vec!(
-                EditorSyntax {
-                    filetype: "rust".to_string(),
-                    extensions: vec!(".rs".to_string()),
-                    has_digits: true,
-                    quotes: "\"".to_string(),
-                    singleline_comment: "//".to_string(),
-                    keyword1s: vec!("extern", "crate", "use", "as", "impl", "fn", "let",
-                                   "unsafe", "if", "else", "return", "while", "break", "continue",
-                                   "loop", "match")
-                               .iter().map(|x|x.to_string()).collect::<Vec<_>>(),
-                    keyword2s: vec!("const", "static", "struct", "mut", "enum", "ref", "type")
-                               .iter().map(|x|x.to_string()).collect::<Vec<_>>(),
-                    keyword3s: vec!("true", "false", "self")
-                               .iter().map(|x|x.to_string()).collect::<Vec<_>>(),
-                    keyword4s: vec!("str", "usize", "char", "u8", "bool")
-                               .iter().map(|x|x.to_string()).collect::<Vec<_>>(), // TODO: Complete
-                },
-                EditorSyntax {
-                    filetype: "c".to_string(),
-                    extensions: vec!(".c".to_string(), ".h".to_string(), ".cpp".to_string()),
-                    has_digits: true,
-                    quotes: "\"'".to_string(),
-                    singleline_comment: "//".to_string(),
-                    keyword1s: vec!(), // TODO: Complete
-                    keyword2s: vec!(), // TODO: Complete
-                    keyword3s: vec!(), // TODO: Complete
-                    keyword4s: vec!(), // TODO: Complete
-                },
-            );
+            let syntax_database =
+                vec![EditorSyntax {
+                         filetype: "rust".to_string(),
+                         extensions: vec![".rs".to_string()],
+                         has_digits: true,
+                         quotes: "\"".to_string(),
+                         singleline_comment: "//".to_string(),
+                         keyword1s: vec!["extern", "crate", "use", "as", "impl", "fn", "let",
+                                         "unsafe", "if", "else", "return", "while", "break",
+                                         "continue", "loop", "match"]
+                                 .iter()
+                                 .map(|x| x.to_string())
+                                 .collect::<Vec<_>>(),
+                         keyword2s: vec!["const", "static", "struct", "mut", "enum", "ref", "type"]
+                             .iter()
+                             .map(|x| x.to_string())
+                             .collect::<Vec<_>>(),
+                         keyword3s: vec!["true", "false", "self"]
+                             .iter()
+                             .map(|x| x.to_string())
+                             .collect::<Vec<_>>(),
+                         keyword4s: vec!["str", "usize", "char", "u8", "bool"]
+                             .iter()
+                             .map(|x| x.to_string())
+                             .collect::<Vec<_>>(), // TODO: Complete
+                     },
+                     EditorSyntax {
+                         filetype: "c".to_string(),
+                         extensions: vec![".c".to_string(), ".h".to_string(), ".cpp".to_string()],
+                         has_digits: true,
+                         quotes: "\"'".to_string(),
+                         singleline_comment: "//".to_string(),
+                         keyword1s: vec![], // TODO: Complete
+                         keyword2s: vec![], // TODO: Complete
+                         keyword3s: vec![], // TODO: Complete
+                         keyword4s: vec![], // TODO: Complete
+                     }];
             for entry in syntax_database {
                 let extensions = entry.extensions.clone();
                 for extension in extensions {
@@ -463,8 +472,8 @@ fn editor_insert_char(editor_config: &mut EditorConfig, c: char) {
     if editor_config.cursor_y == editor_config.rows.len() {
         editor_config.rows.push(Vec::new());
     }
-    editor_config.rows[editor_config.cursor_y]
-        .insert(editor_config.cursor_x, (c, EditorHighlight::Normal));
+    editor_config.rows[editor_config.cursor_y].insert(editor_config.cursor_x,
+                                                      (c, EditorHighlight::Normal));
     let index = editor_config.cursor_y;
     update_row(editor_config, index);
     editor_config.cursor_x += 1;
@@ -485,7 +494,9 @@ fn editor_insert_newline(editor_config: &mut EditorConfig) {
 
         let row_end = editor_config.rows[editor_config.cursor_y].split_off(editor_config.cursor_x);
         next_row.extend(row_end);
-        editor_config.rows.insert(editor_config.cursor_y + 1, next_row);
+        editor_config
+            .rows
+            .insert(editor_config.cursor_y + 1, next_row);
 
         if will_clear_row {
             editor_config.rows[editor_config.cursor_y] = Vec::new();
@@ -561,7 +572,12 @@ fn editor_save(editor_config: &mut EditorConfig) -> io::Result<()> {
 
     let filename = editor_config.filename.clone().unwrap();
     let mut file = File::create(filename)?;
-    let mut text = editor_config.rows.iter().map(row_to_string).collect::<Vec<_>>().join("\n");
+    let mut text = editor_config
+        .rows
+        .iter()
+        .map(row_to_string)
+        .collect::<Vec<_>>()
+        .join("\n");
     text.push('\n');
     file.write_all(text.as_bytes())?;
     editor_config.modified = false;
@@ -587,9 +603,10 @@ fn editor_find_callback(editor_config: &mut EditorConfig, query: &str, key: Edit
             } else {
                 None
             };
-            potential_match.or(editor_config.rows
-                                            .iter()
-                                            .position(|row| row_to_string(row).contains(query)))
+            potential_match.or(editor_config
+                                   .rows
+                                   .iter()
+                                   .position(|row| row_to_string(row).contains(query)))
         } else if key == EditorKey::ArrowLeft || key == EditorKey::ArrowUp {
             let potential_match = if editor_config.cursor_y > 1 {
                 editor_config.rows[..editor_config.cursor_y]
@@ -598,9 +615,10 @@ fn editor_find_callback(editor_config: &mut EditorConfig, query: &str, key: Edit
             } else {
                 None
             };
-            potential_match.or(editor_config.rows
-                                            .iter()
-                                            .rposition(|row| row_to_string(row).contains(query)))
+            potential_match.or(editor_config
+                                   .rows
+                                   .iter()
+                                   .rposition(|row| row_to_string(row).contains(query)))
         } else {
             let potential_match = if editor_config.cursor_y < editor_config.rows.len() - 1 {
                 editor_config.rows[editor_config.cursor_y..]
@@ -610,14 +628,15 @@ fn editor_find_callback(editor_config: &mut EditorConfig, query: &str, key: Edit
             } else {
                 None
             };
-            potential_match.or(editor_config.rows
-                                            .iter()
-                                            .position(|row| row_to_string(row).contains(query)))
+            potential_match.or(editor_config
+                                   .rows
+                                   .iter()
+                                   .position(|row| row_to_string(row).contains(query)))
         };
         if let Some(match_line) = match_line {
             let match_index = row_to_string(&editor_config.rows[match_line])
-                                  .find(query)
-                                  .expect("We just checked the row contained the string.");
+                .find(query)
+                .expect("We just checked the row contained the string.");
             editor_config.cursor_y = match_line;
             open_folds(editor_config);
             editor_config.cursor_x = match_index;
@@ -685,9 +704,10 @@ fn editor_draw_rows(editor_config: &EditorConfig, append_buffer: &mut String) {
             let ref current_row = editor_config.rows[file_row];
             if editor_config.col_offset < current_row.len() {
                 let mut current_hl = EditorHighlight::Normal;
-                for &(c, hl) in current_row.iter()
-                                           .skip(editor_config.col_offset)
-                                           .take(editor_config.screen_cols) {
+                for &(c, hl) in current_row
+                        .iter()
+                        .skip(editor_config.col_offset)
+                        .take(editor_config.screen_cols) {
                     if hl != current_hl {
                         current_hl = hl;
                         append_buffer.push_str(hl.color());
@@ -740,7 +760,10 @@ fn editor_draw_rows(editor_config: &EditorConfig, append_buffer: &mut String) {
 
 fn editor_draw_status_bar(editor_config: &EditorConfig, append_buffer: &mut String) {
     append_buffer.push_str(INVERT_COLORS);
-    let mut name = editor_config.filename.clone().unwrap_or("[No Name]".to_string());
+    let mut name = editor_config
+        .filename
+        .clone()
+        .unwrap_or("[No Name]".to_string());
     name.truncate(20);
     let dirty = if editor_config.modified {
         "(modified)"
@@ -792,7 +815,9 @@ fn editor_refresh_screen(editor_config: &mut EditorConfig) {
     append_buffer.push_str(&cursor_control);
     append_buffer.push_str(SHOW_CURSOR);
     print!("{}", append_buffer);
-    io::stdout().flush().expect("Flushing to stdout should work.");
+    io::stdout()
+        .flush()
+        .expect("Flushing to stdout should work.");
 }
 
 fn editor_set_status_message(editor_config: &mut EditorConfig, message: &str) {
@@ -827,7 +852,7 @@ fn editor_prompt(editor_config: &mut EditorConfig,
                 return Some(response);
             }
         } else if c == EditorKey::Delete || c == EditorKey::Verbatim(ctrl_key('h')) ||
-           c == EditorKey::Verbatim(127 as char) {
+                  c == EditorKey::Verbatim(127 as char) {
             if response.len() > 0 {
                 response.pop();
             }
@@ -897,7 +922,7 @@ fn editor_move_cursor(editor_config: &mut EditorConfig, key: EditorKey) {
             if editor_config.cursor_x < row_len {
                 editor_config.cursor_x += 1
             } else if editor_config.cursor_x == row_len &&
-               editor_config.cursor_y < editor_config.rows.len() {
+                      editor_config.cursor_y < editor_config.rows.len() {
                 editor_config.cursor_y += 1;
                 editor_config.cursor_x = 0
             }
@@ -1006,5 +1031,7 @@ fn main() {
     };
     print!("{}", CLEAR_SCREEN);
     print!("{}", CURSOR_TOP_RIGHT);
-    io::stdout().flush().expect("I hope flushing to stdout works now.");
+    io::stdout()
+        .flush()
+        .expect("I hope flushing to stdout works now.");
 }

@@ -297,9 +297,13 @@ fn one_row_forward(editor_config: &EditorConfig, index: usize) -> usize {
 
 fn one_row_back(editor_config: &EditorConfig, index: usize) -> usize {
     if index > 0 {
-        if let Some((&start, _end_and_depth)) = editor_config.folds.iter()
-                .filter(|&(_start, &(end, _depth))| end == editor_config.cursor_y - 1)
-                .next() {
+        if let Some((&start, _end_and_depth)) = editor_config.folds
+                                                             .iter()
+                                                             .filter(|&(_start,
+                                                                        &(end, _depth))| {
+                                                                 end == editor_config.cursor_y - 1
+                                                             })
+                                                             .next() {
             start
         } else {
             index - 1
@@ -905,7 +909,7 @@ fn editor_move_cursor(editor_config: &mut EditorConfig, key: EditorKey) {
             }
         }
         EditorKey::PageDown => {
-            for _ in 0..(editor_config.screen_rows*2 - 1) {
+            for _ in 0..(editor_config.screen_rows * 2 - 1) {
                 editor_move_cursor(editor_config, EditorKey::ArrowDown)
             }
         }

@@ -29,16 +29,16 @@ fn ctrl_key(k: char) -> char {
 const INVERT_COLORS: &'static str = "\x1b[7m";
 const REVERT_COLORS: &'static str = "\x1b[m";
 
-const RED:           &'static str = "\x1b[31m";
-const MAGENTA:       &'static str = "\x1b[1m\x1b[35m";
-const WHITE:         &'static str = "\x1b[37m";
-const CYAN:          &'static str = "\x1b[36m";
-const YELLOW:        &'static str = "\x1b[33m";
+const RED: &'static str = "\x1b[31m";
+const MAGENTA: &'static str = "\x1b[1m\x1b[35m";
+const WHITE: &'static str = "\x1b[37m";
+const CYAN: &'static str = "\x1b[36m";
+const YELLOW: &'static str = "\x1b[33m";
 const BRIGHT_YELLOW: &'static str = "\x1b[1m\x1b[33m";
-const GREEN:         &'static str = "\x1b[32m";
-const BRIGHT_GREEN:  &'static str = "\x1b[1m\x1b[32m";
+const GREEN: &'static str = "\x1b[32m";
+const BRIGHT_GREEN: &'static str = "\x1b[1m\x1b[32m";
 
-const BACK_BLUE:     &'static str = "\x1b[44m";
+const BACK_BLUE: &'static str = "\x1b[44m";
 
 const CURSOR_TOP_RIGHT: &'static str = "\x1b[H";
 
@@ -118,11 +118,11 @@ enum EditorHighlight {
 impl EditorHighlight {
     fn color(&self) -> &str {
         match *self {
-            EditorHighlight::Normal   => REVERT_COLORS,
-            EditorHighlight::Number   => RED,
-            EditorHighlight::Match    => BACK_BLUE,
-            EditorHighlight::String   => MAGENTA,
-            EditorHighlight::Comment  => CYAN,
+            EditorHighlight::Normal => REVERT_COLORS,
+            EditorHighlight::Number => RED,
+            EditorHighlight::Match => BACK_BLUE,
+            EditorHighlight::String => MAGENTA,
+            EditorHighlight::Comment => CYAN,
             EditorHighlight::Keyword1 => YELLOW,
             EditorHighlight::Keyword2 => GREEN,
             EditorHighlight::Keyword3 => BRIGHT_GREEN,
@@ -146,7 +146,6 @@ enum EditorKey {
 }
 
 /// * filetypes **
-
 #[derive(Clone)]
 struct EditorSyntax {
     filetype: String,
@@ -250,19 +249,20 @@ fn row_to_string(row: &Row) -> String {
 }
 
 fn string_to_row(s: &str) -> Row {
-    s.chars().map(|c|(c, EditorHighlight::Normal)).collect()
+    s.chars().map(|c| (c, EditorHighlight::Normal)).collect()
 }
 
 fn update_row(editor_config: &mut EditorConfig, row_index: usize) {
     if let Some(syntax) = editor_config.syntax.clone() {
         let ref mut row = editor_config.rows[row_index];
         let mut index = 0;
-        let keyword_groups = vec!(syntax.keyword1s, syntax.keyword2s, syntax.keyword3s, syntax.keyword4s);
+        let keyword_groups = vec![syntax.keyword1s,
+                                  syntax.keyword2s,
+                                  syntax.keyword3s,
+                                  syntax.keyword4s];
         'outer: while index < row.len() {
-            let prev_is_digit_or_sep =
-                index == 0 ||
-                is_separator(row[index - 1].0) ||
-                row[index - 1].1 == EditorHighlight::Number;
+            let prev_is_digit_or_sep = index == 0 || is_separator(row[index - 1].0) ||
+                                       row[index - 1].1 == EditorHighlight::Number;
             if syntax.has_digits && row[index].0.is_digit(10) && prev_is_digit_or_sep {
                 row[index].1 = EditorHighlight::Number
             } else if syntax.quotes.contains(row[index].0) {
@@ -271,7 +271,9 @@ fn update_row(editor_config: &mut EditorConfig, row_index: usize) {
                 index += 1;
                 while index < row.len() {
                     row[index].1 = EditorHighlight::String;
-                    if row[index].0 == start_quote { break };
+                    if row[index].0 == start_quote {
+                        break;
+                    };
                     if row[index].0 == '\\' && index + 1 < row.len() {
                         index += 1;
                         row[index].1 = EditorHighlight::String;
@@ -295,14 +297,14 @@ fn update_row(editor_config: &mut EditorConfig, row_index: usize) {
                             _ => panic!("There should only be four things in the list."),
                         };
                         for keyword in keywords {
-                            if following_string.starts_with(keyword) && (
-                                index + keyword.len() >= row.len() ||
+                            if following_string.starts_with(keyword) &&
+                               (index + keyword.len() >= row.len() ||
                                 is_separator(row[index + keyword.len()].0)) {
                                 let keyword_end = index + keyword.len();
                                 while index < keyword_end {
                                     row[index].1 = highlight;
                                     index += 1;
-                                };
+                                }
                                 continue 'outer;
                             }
                         }
@@ -357,7 +359,7 @@ fn editor_select_syntax(editor_config: &mut EditorConfig) {
                         for index in 0..editor_config.rows.len() {
                             update_row(editor_config, index);
                         }
-                        return
+                        return;
                     }
                 }
             }
@@ -372,7 +374,8 @@ fn editor_insert_char(editor_config: &mut EditorConfig, c: char) {
     if editor_config.cursor_y == editor_config.rows.len() {
         editor_config.rows.push(Vec::new());
     }
-    editor_config.rows[editor_config.cursor_y].insert(editor_config.cursor_x, (c, EditorHighlight::Normal));
+    editor_config.rows[editor_config.cursor_y]
+        .insert(editor_config.cursor_x, (c, EditorHighlight::Normal));
     let index = editor_config.cursor_y;
     update_row(editor_config, index);
     editor_config.cursor_x += 1;
@@ -440,11 +443,11 @@ fn editor_save(editor_config: &mut EditorConfig) -> io::Result<()> {
             None => {
                 editor_set_status_message(editor_config, "Save aborted");
                 return Ok(());
-            },
+            }
             s @ Some(_) => {
                 editor_config.filename = s;
                 editor_select_syntax(editor_config)
-            },
+            }
         }
     }
 
@@ -476,8 +479,9 @@ fn editor_find_callback(editor_config: &mut EditorConfig, query: &str, key: Edit
             } else {
                 None
             };
-            potential_match.or(editor_config.rows.iter()
-                              .position(|row| row_to_string(row).contains(query)))
+            potential_match.or(editor_config.rows
+                                            .iter()
+                                            .position(|row| row_to_string(row).contains(query)))
         } else if key == EditorKey::ArrowLeft || key == EditorKey::ArrowUp {
             let potential_match = if editor_config.cursor_y > 1 {
                 editor_config.rows[..editor_config.cursor_y]
@@ -486,8 +490,9 @@ fn editor_find_callback(editor_config: &mut EditorConfig, query: &str, key: Edit
             } else {
                 None
             };
-            potential_match.or(editor_config.rows.iter()
-                              .rposition(|row| row_to_string(row).contains(query)))
+            potential_match.or(editor_config.rows
+                                            .iter()
+                                            .rposition(|row| row_to_string(row).contains(query)))
         } else {
             editor_config.rows.iter().position(|row| row_to_string(row).contains(query))
         };
@@ -547,8 +552,8 @@ fn editor_draw_rows(editor_config: &EditorConfig, append_buffer: &mut String) {
             if editor_config.col_offset < current_row.len() {
                 let mut current_hl = EditorHighlight::Normal;
                 for &(c, hl) in current_row.iter()
-                                    .skip(editor_config.col_offset)
-                                    .take(editor_config.screen_cols) {
+                                           .skip(editor_config.col_offset)
+                                           .take(editor_config.screen_cols) {
                     if hl != current_hl {
                         current_hl = hl;
                         append_buffer.push_str(hl.color());
@@ -558,7 +563,11 @@ fn editor_draw_rows(editor_config: &EditorConfig, append_buffer: &mut String) {
                     } else {
                         if c.is_control() {
                             append_buffer.push_str(INVERT_COLORS);
-                            let sym = if c as u8 <= 26 { (64 + (c as u8)) as char } else { '?' };
+                            let sym = if c as u8 <= 26 {
+                                (64 + (c as u8)) as char
+                            } else {
+                                '?'
+                            };
                             append_buffer.push(sym);
                             append_buffer.push_str(REVERT_COLORS);
                             append_buffer.push_str(hl.color());

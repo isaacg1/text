@@ -433,6 +433,7 @@ fn editor_delete_char(editor_config: &mut EditorConfig) {
     } else if 0 < editor_config.cursor_y && editor_config.cursor_y < editor_config.rows.len() {
         editor_config.cursor_x = editor_config.rows[editor_config.cursor_y - 1].len();
         let append_line = editor_config.rows[editor_config.cursor_y].clone();
+        let append_line = append_line[whitespace_depth(&append_line)..].to_vec();
         editor_config.rows[editor_config.cursor_y - 1].extend(&append_line);
         let index = editor_config.cursor_y - 1;
         update_row(editor_config, index);

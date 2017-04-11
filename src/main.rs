@@ -161,6 +161,8 @@ struct EditorSyntax {
     keyword4s: Vec<String>,
 }
 
+/// * debug **
+
 /// * terminal **
 fn enable_raw_mode() -> io::Result<Termios> {
     let orig_termios = Termios::from_fd(STDIN)?;
@@ -504,6 +506,11 @@ fn editor_insert_newline(editor_config: &mut EditorConfig) {
             editor_config
                 .rows
                 .insert(editor_config.cursor_y + 1, next_row);
+            for row_index in (editor_config.cursor_y..editor_config.rows.len()).rev() {
+                if let Some((end, depth)) = editor_config.folds.remove(&row_index) {
+                    editor_config.folds.insert(row_index + 1, (end + 1, depth));
+                }
+            }
 
             if will_clear_row {
                 editor_config.rows[editor_config.cursor_y] = Vec::new();
@@ -532,17 +539,23 @@ fn editor_delete_char(editor_config: &mut EditorConfig) {
             let index = editor_config.cursor_y;
             update_row(editor_config, index);
             editor_config.cursor_x -= 1;
+            editor_config.modified = true
         } else if 0 < editor_config.cursor_y && editor_config.cursor_y < editor_config.rows.len() {
             editor_config.cursor_x = editor_config.rows[editor_config.cursor_y - 1].len();
             let append_line = editor_config.rows[editor_config.cursor_y].clone();
             let append_line = append_line[whitespace_depth(&append_line)..].to_vec();
             editor_config.rows[editor_config.cursor_y - 1].extend(&append_line);
+            for row_index in editor_config.cursor_y..editor_config.rows.len() {
+                if let Some((end, depth)) = editor_config.folds.remove(&row_index) {
+                    editor_config.folds.insert(row_index - 1, (end - 1, depth));
+                }
+            }
             let index = editor_config.cursor_y - 1;
             update_row(editor_config, index);
             editor_config.rows.remove(editor_config.cursor_y);
             editor_config.cursor_y -= 1;
+            editor_config.modified = true
         };
-        editor_config.modified = true
     }
 }
 
@@ -946,7 +959,7 @@ fn editor_move_cursor(editor_config: &mut EditorConfig, key: EditorKey) {
             }
         }
         EditorKey::PageDown => {
-            for _ in 0..(editor_config.screen_rows * 2 - 1) {
+            for _ in 0..(editor_config.screen_rows * 2 - 1 - screen_line_y(editor_config)) {
                 editor_move_cursor(editor_config, EditorKey::ArrowDown)
             }
         }

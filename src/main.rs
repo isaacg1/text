@@ -163,6 +163,53 @@ struct EditorSyntax {
 
 /// * debug **
 
+fn check_consistency(editor_config_mut: &mut EditorConfig) {
+    let failure: Option<&str> = {
+        let ref editor_config = editor_config_mut;
+        let cursor_position_failure = if editor_config.cursor_y > editor_config.rows.len() {
+            Some("Cursor y position out of bounds.")
+        } else if editor_config.cursor_y == editor_config.rows.len() {
+            if editor_config.cursor_x > 0 {
+                Some("Cursor x position is ou of bounds")
+            } else {
+                None
+            }
+        } else {
+            if editor_config.cursor_x > editor_config.rows[editor_config.cursor_y].len() {
+                Some("Cursor x position is out of bounds")
+            } else {
+                None
+            }
+        };
+        let mut fold_failure = None;
+        for (&start, &(end, _)) in  editor_config.folds.iter() {
+              if start < editor_config.cursor_y && editor_config.cursor_y <= end {
+                  fold_failure = Some("Cursor is inside a fold");
+                  break;
+              }
+              if editor_config.rows.len() <= end {
+                  fold_failure = Some("Fold goes past end of file");
+                  break;
+              }
+        }
+        let mut fold_fold_failure = None;
+        // This is a bit slow, be warned.
+        for (&start1, &(end1, _)) in editor_config.folds.iter() {
+            for (&start2, &(end2, _)) in editor_config.folds.iter() {
+                if (start1 <= start2 && start2 <= end1 && end1 <= end2)
+                && !(start1 == start2 && end1 == end2) {
+                    fold_fold_failure = Some("Two folds overlap");
+                    break;
+                }
+            }
+        }
+        cursor_position_failure.or(fold_failure).or(fold_fold_failure)
+    };
+    if let Some(message) = failure {
+        editor_set_status_message(editor_config_mut, message);
+    }
+}
+
 /// * terminal **
 fn enable_raw_mode() -> io::Result<Termios> {
     let orig_termios = Termios::from_fd(STDIN)?;
@@ -472,7 +519,8 @@ fn editor_select_syntax(editor_config: &mut EditorConfig) {
 
 fn editor_insert_char(editor_config: &mut EditorConfig, c: char) {
     if editor_config.folds.contains_key(&editor_config.cursor_y) {
-        editor_set_status_message(editor_config, "Folded lines can't be edited. Ctrl-Space to unfold.")
+        editor_set_status_message(editor_config,
+                                  "Folded lines can't be edited. Ctrl-Space to unfold.")
     } else {
         if editor_config.cursor_y == editor_config.rows.len() {
             editor_config.rows.push(Vec::new());
@@ -488,7 +536,8 @@ fn editor_insert_char(editor_config: &mut EditorConfig, c: char) {
 
 fn editor_insert_newline(editor_config: &mut EditorConfig) {
     if editor_config.folds.contains_key(&editor_config.cursor_y) {
-        editor_set_status_message(editor_config, "Folded lines can't be edited. Ctrl-Space to unfold.")
+        editor_set_status_message(editor_config,
+                                  "Folded lines can't be edited. Ctrl-Space to unfold.")
     } else {
         if editor_config.cursor_y < editor_config.rows.len() {
             let depth;
@@ -501,14 +550,17 @@ fn editor_insert_newline(editor_config: &mut EditorConfig) {
                 will_clear_row = row.len() == depth && editor_config.cursor_x == row.len();
             }
 
-            let row_end = editor_config.rows[editor_config.cursor_y].split_off(editor_config.cursor_x);
+            let row_end = editor_config.rows[editor_config.cursor_y]
+                .split_off(editor_config.cursor_x);
             next_row.extend(row_end);
             editor_config
                 .rows
                 .insert(editor_config.cursor_y + 1, next_row);
             for row_index in (editor_config.cursor_y..editor_config.rows.len()).rev() {
                 if let Some((end, depth)) = editor_config.folds.remove(&row_index) {
-                    editor_config.folds.insert(row_index + 1, (end + 1, depth));
+                    editor_config
+                        .folds
+                        .insert(row_index + 1, (end + 1, depth));
                 }
             }
 
@@ -532,7 +584,8 @@ fn editor_insert_newline(editor_config: &mut EditorConfig) {
 
 fn editor_delete_char(editor_config: &mut EditorConfig) {
     if editor_config.folds.contains_key(&editor_config.cursor_y) {
-        editor_set_status_message(editor_config, "Folded lines can't be edited. Ctrl-Space to unfold.")
+        editor_set_status_message(editor_config,
+                                  "Folded lines can't be edited. Ctrl-Space to unfold.")
     } else {
         if editor_config.cursor_x > 0 {
             editor_config.rows[editor_config.cursor_y].remove(editor_config.cursor_x - 1);
@@ -547,7 +600,9 @@ fn editor_delete_char(editor_config: &mut EditorConfig) {
             editor_config.rows[editor_config.cursor_y - 1].extend(&append_line);
             for row_index in editor_config.cursor_y..editor_config.rows.len() {
                 if let Some((end, depth)) = editor_config.folds.remove(&row_index) {
-                    editor_config.folds.insert(row_index - 1, (end - 1, depth));
+                    editor_config
+                        .folds
+                        .insert(row_index - 1, (end - 1, depth));
                 }
             }
             let index = editor_config.cursor_y - 1;
@@ -1041,8 +1096,9 @@ fn main() {
     }
 
     editor_set_status_message(&mut editor_config,
-                              "Help: Ctrl-S = save, Ctrl-Q = quit, Ctrl-F = find.");
+                              "Help: Ctrl-S = save, Ctrl-Q = quit, Ctrl-F = find, Ctrl-Space = fold.");
     loop {
+        check_consistency(&mut editor_config);
         editor_refresh_screen(&mut editor_config);
         let to_continue = editor_process_keypress(&mut editor_config);
         if !to_continue {

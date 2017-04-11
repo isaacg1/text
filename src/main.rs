@@ -168,7 +168,8 @@ fn check_consistency(editor_config_mut: &mut EditorConfig) {
         let ref editor_config = editor_config_mut;
         let cursor_position_failure = if editor_config.cursor_y > editor_config.rows.len() {
             Some("Cursor y position out of bounds.")
-        } else if editor_config.cursor_y == editor_config.rows.len() {
+        } else if editor_config.cursor_y ==
+                  editor_config.rows.len() {
             if editor_config.cursor_x > 0 {
                 Some("Cursor x position is ou of bounds")
             } else {
@@ -182,28 +183,30 @@ fn check_consistency(editor_config_mut: &mut EditorConfig) {
             }
         };
         let mut fold_failure = None;
-        for (&start, &(end, _)) in  editor_config.folds.iter() {
-              if start < editor_config.cursor_y && editor_config.cursor_y <= end {
-                  fold_failure = Some("Cursor is inside a fold");
-                  break;
-              }
-              if editor_config.rows.len() <= end {
-                  fold_failure = Some("Fold goes past end of file");
-                  break;
-              }
+        for (&start, &(end, _)) in editor_config.folds.iter() {
+            if start < editor_config.cursor_y && editor_config.cursor_y <= end {
+                fold_failure = Some("Cursor is inside a fold");
+                break;
+            }
+            if editor_config.rows.len() <= end {
+                fold_failure = Some("Fold goes past end of file");
+                break;
+            }
         }
         let mut fold_fold_failure = None;
         // This is a bit slow, be warned.
         for (&start1, &(end1, _)) in editor_config.folds.iter() {
             for (&start2, &(end2, _)) in editor_config.folds.iter() {
-                if (start1 <= start2 && start2 <= end1 && end1 <= end2)
-                && !(start1 == start2 && end1 == end2) {
+                if (start1 <= start2 && start2 <= end1 && end1 <= end2) &&
+                   !(start1 == start2 && end1 == end2) {
                     fold_fold_failure = Some("Two folds overlap");
                     break;
                 }
             }
         }
-        cursor_position_failure.or(fold_failure).or(fold_fold_failure)
+        cursor_position_failure
+            .or(fold_failure)
+            .or(fold_fold_failure)
     };
     if let Some(message) = failure {
         editor_set_status_message(editor_config_mut, message);
@@ -484,9 +487,9 @@ fn editor_select_syntax(editor_config: &mut EditorConfig) {
                              .collect::<Vec<_>>(),
                          keyword4s: vec!["bool", "char", "i8", "i16", "i32", "i64", "isize", "u8",
                                          "u16", "u32", "u64", "usize", "f32", "f64", "str"]
-                             .iter()
-                             .map(|x| x.to_string())
-                             .collect::<Vec<_>>(),
+                                 .iter()
+                                 .map(|x| x.to_string())
+                                 .collect::<Vec<_>>(),
                      },
                      EditorSyntax {
                          filetype: "c".to_string(),
@@ -1097,7 +1100,8 @@ fn main() {
     }
 
     editor_set_status_message(&mut editor_config,
-                              "Help: Ctrl-S = save, Ctrl-Q = quit, Ctrl-F = find, Ctrl-Space = fold.");
+                              "Help: Ctrl-S = save, Ctrl-Q = quit, \
+                              Ctrl-F = find, Ctrl-Space = fold.");
     loop {
         check_consistency(&mut editor_config);
         editor_refresh_screen(&mut editor_config);

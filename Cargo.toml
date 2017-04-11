@@ -1,0 +1,8 @@
+[package]
+name = "text"
+version = "0.1.0"
+authors = ["Isaac Grosof <isaacg@mit.edu>"]
+
+[dependencies]
+termios = "0.2"
+libc = "0.2.21"

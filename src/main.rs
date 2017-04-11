@@ -469,69 +469,81 @@ fn editor_select_syntax(editor_config: &mut EditorConfig) {
 /// * editor operations **
 
 fn editor_insert_char(editor_config: &mut EditorConfig, c: char) {
-    if editor_config.cursor_y == editor_config.rows.len() {
-        editor_config.rows.push(Vec::new());
+    if editor_config.folds.contains_key(&editor_config.cursor_y) {
+        editor_set_status_message(editor_config, "Folded lines can't be edited. Ctrl-Space to unfold.")
+    } else {
+        if editor_config.cursor_y == editor_config.rows.len() {
+            editor_config.rows.push(Vec::new());
+        }
+        editor_config.rows[editor_config.cursor_y].insert(editor_config.cursor_x,
+                                                          (c, EditorHighlight::Normal));
+        let index = editor_config.cursor_y;
+        update_row(editor_config, index);
+        editor_config.cursor_x += 1;
+        editor_config.modified = true;
     }
-    editor_config.rows[editor_config.cursor_y].insert(editor_config.cursor_x,
-                                                      (c, EditorHighlight::Normal));
-    let index = editor_config.cursor_y;
-    update_row(editor_config, index);
-    editor_config.cursor_x += 1;
-    editor_config.modified = true;
 }
 
 fn editor_insert_newline(editor_config: &mut EditorConfig) {
-    if editor_config.cursor_y < editor_config.rows.len() {
-        let depth;
-        let mut next_row;
-        let will_clear_row;
-        {
-            let ref row = editor_config.rows[editor_config.cursor_y];
-            depth = whitespace_depth(row);
-            next_row = row[..depth].to_vec();
-            will_clear_row = row.len() == depth && editor_config.cursor_x == row.len();
-        }
-
-        let row_end = editor_config.rows[editor_config.cursor_y].split_off(editor_config.cursor_x);
-        next_row.extend(row_end);
-        editor_config
-            .rows
-            .insert(editor_config.cursor_y + 1, next_row);
-
-        if will_clear_row {
-            editor_config.rows[editor_config.cursor_y] = Vec::new();
-        }
-
-        let index = editor_config.cursor_y;
-        update_row(editor_config, index);
-        update_row(editor_config, index + 1);
-
-        editor_config.cursor_x = depth;
+    if editor_config.folds.contains_key(&editor_config.cursor_y) {
+        editor_set_status_message(editor_config, "Folded lines can't be edited. Ctrl-Space to unfold.")
     } else {
-        editor_config.rows.push(Vec::new());
-        editor_config.cursor_x = 0;
+        if editor_config.cursor_y < editor_config.rows.len() {
+            let depth;
+            let mut next_row;
+            let will_clear_row;
+            {
+                let ref row = editor_config.rows[editor_config.cursor_y];
+                depth = whitespace_depth(row);
+                next_row = row[..depth].to_vec();
+                will_clear_row = row.len() == depth && editor_config.cursor_x == row.len();
+            }
+
+            let row_end = editor_config.rows[editor_config.cursor_y].split_off(editor_config.cursor_x);
+            next_row.extend(row_end);
+            editor_config
+                .rows
+                .insert(editor_config.cursor_y + 1, next_row);
+
+            if will_clear_row {
+                editor_config.rows[editor_config.cursor_y] = Vec::new();
+            }
+
+            let index = editor_config.cursor_y;
+            update_row(editor_config, index);
+            update_row(editor_config, index + 1);
+
+            editor_config.cursor_x = depth;
+        } else {
+            editor_config.rows.push(Vec::new());
+            editor_config.cursor_x = 0;
+        }
+        editor_config.cursor_y += 1;
+        editor_config.modified = true;
     }
-    editor_config.cursor_y += 1;
-    editor_config.modified = true;
 }
 
 fn editor_delete_char(editor_config: &mut EditorConfig) {
-    if editor_config.cursor_x > 0 {
-        editor_config.rows[editor_config.cursor_y].remove(editor_config.cursor_x - 1);
-        let index = editor_config.cursor_y;
-        update_row(editor_config, index);
-        editor_config.cursor_x -= 1;
-    } else if 0 < editor_config.cursor_y && editor_config.cursor_y < editor_config.rows.len() {
-        editor_config.cursor_x = editor_config.rows[editor_config.cursor_y - 1].len();
-        let append_line = editor_config.rows[editor_config.cursor_y].clone();
-        let append_line = append_line[whitespace_depth(&append_line)..].to_vec();
-        editor_config.rows[editor_config.cursor_y - 1].extend(&append_line);
-        let index = editor_config.cursor_y - 1;
-        update_row(editor_config, index);
-        editor_config.rows.remove(editor_config.cursor_y);
-        editor_config.cursor_y -= 1;
-    };
-    editor_config.modified = true
+    if editor_config.folds.contains_key(&editor_config.cursor_y) {
+        editor_set_status_message(editor_config, "Folded lines can't be edited. Ctrl-Space to unfold.")
+    } else {
+        if editor_config.cursor_x > 0 {
+            editor_config.rows[editor_config.cursor_y].remove(editor_config.cursor_x - 1);
+            let index = editor_config.cursor_y;
+            update_row(editor_config, index);
+            editor_config.cursor_x -= 1;
+        } else if 0 < editor_config.cursor_y && editor_config.cursor_y < editor_config.rows.len() {
+            editor_config.cursor_x = editor_config.rows[editor_config.cursor_y - 1].len();
+            let append_line = editor_config.rows[editor_config.cursor_y].clone();
+            let append_line = append_line[whitespace_depth(&append_line)..].to_vec();
+            editor_config.rows[editor_config.cursor_y - 1].extend(&append_line);
+            let index = editor_config.cursor_y - 1;
+            update_row(editor_config, index);
+            editor_config.rows.remove(editor_config.cursor_y);
+            editor_config.cursor_y -= 1;
+        };
+        editor_config.modified = true
+    }
 }
 
 /// * file i/o **

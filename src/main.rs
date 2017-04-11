@@ -482,10 +482,11 @@ fn editor_select_syntax(editor_config: &mut EditorConfig) {
                              .iter()
                              .map(|x| x.to_string())
                              .collect::<Vec<_>>(),
-                         keyword4s: vec!["str", "usize", "char", "u8", "bool"]
+                         keyword4s: vec!["bool", "char", "i8", "i16", "i32", "i64", "isize", "u8",
+                                         "u16", "u32", "u64", "usize", "f32", "f64", "str"]
                              .iter()
                              .map(|x| x.to_string())
-                             .collect::<Vec<_>>(), // TODO: Complete
+                             .collect::<Vec<_>>(),
                      },
                      EditorSyntax {
                          filetype: "c".to_string(),

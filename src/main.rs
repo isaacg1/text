@@ -478,22 +478,23 @@ fn editor_select_syntax(editor_config: &mut EditorConfig) {
                          keywords: [vec!["extern", "crate", "use", "as", "impl", "fn", "let",
                                          "unsafe", "if", "else", "return", "while", "break",
                                          "continue", "loop", "match"]
-                                 .iter()
-                                 .map(|x| x.to_string())
-                                 .collect::<Vec<_>>(),
-                                    vec!["const", "static", "struct", "mut", "enum", "ref", "type"]
-                             .iter()
-                             .map(|x| x.to_string())
-                             .collect::<Vec<_>>(),
+                                            .iter()
+                                            .map(|x| x.to_string())
+                                            .collect::<Vec<_>>(),
+                                    vec!["const", "static", "struct", "mut", "enum", "ref",
+                                         "type"]
+                                            .iter()
+                                            .map(|x| x.to_string())
+                                            .collect::<Vec<_>>(),
                                     vec!["true", "false", "self"]
-                             .iter()
-                             .map(|x| x.to_string())
-                             .collect::<Vec<_>>(),
-                                    vec!["bool", "char", "i8", "i16", "i32", "i64", "isize", "u8",
-                                         "u16", "u32", "u64", "usize", "f32", "f64", "str"]
-                                 .iter()
-                                 .map(|x| x.to_string())
-                                 .collect::<Vec<_>>()],
+                                        .iter()
+                                        .map(|x| x.to_string())
+                                        .collect::<Vec<_>>(),
+                                    vec!["bool", "char", "i8", "i16", "i32", "i64", "isize",
+                                         "u8", "u16", "u32", "u64", "usize", "f32", "f64", "str"]
+                                            .iter()
+                                            .map(|x| x.to_string())
+                                            .collect::<Vec<_>>()],
                      },
                      EditorSyntax {
                          filetype: "c".to_string(),

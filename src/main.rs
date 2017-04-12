@@ -173,14 +173,14 @@ struct EditorSyntax {
 fn check_consistency(editor_config_mut: &mut EditorConfig) {
     let failure: Option<&str> = {
         let editor_config = &editor_config_mut;
-        let cursor_position_failure =
-            if editor_config.cursor_y > editor_config.rows.len() {
-                Some("Cursor y position out of bounds.")
-            } else if editor_config.cursor_x > current_row_len(editor_config) {
-                Some("Cursor x position is out of bounds")
-            } else {
-                None
-            };
+        let cursor_position_failure = if editor_config.cursor_y > editor_config.rows.len() {
+            Some("Cursor y position out of bounds.")
+        } else if editor_config.cursor_x >
+                  current_row_len(editor_config) {
+            Some("Cursor x position is out of bounds")
+        } else {
+            None
+        };
         let mut fold_failure = None;
         for (&start, &(end, _)) in &editor_config.folds {
             if start < editor_config.cursor_y && editor_config.cursor_y <= end {
@@ -299,21 +299,19 @@ fn create_fold(editor_config: &mut EditorConfig) {
     if editor_config.cursor_y < editor_config.rows.len() {
         let fold_depth = whitespace_depth(&editor_config.rows[editor_config.cursor_y]);
         let start = editor_config
-                        .rows
-                        .iter()
-                        .rev()
-                        .skip(editor_config.rows.len() - editor_config.cursor_y)
-                        .position(|row| whitespace_depth(row) < fold_depth
-                                         && !row.is_empty())
-                        .map_or(0, |reverse_offset| editor_config.cursor_y - reverse_offset);
+            .rows
+            .iter()
+            .rev()
+            .skip(editor_config.rows.len() - editor_config.cursor_y)
+            .position(|row| whitespace_depth(row) < fold_depth && !row.is_empty())
+            .map_or(0, |reverse_offset| editor_config.cursor_y - reverse_offset);
         let end = editor_config
-                      .rows
-                      .iter()
-                      .skip(editor_config.cursor_y + 1)
-                      .position(|row| whitespace_depth(row) < fold_depth
-                                      && !row.is_empty())
-                      .map_or(editor_config.rows.len() - 1,
-                              |offset| editor_config.cursor_y + offset);
+            .rows
+            .iter()
+            .skip(editor_config.cursor_y + 1)
+            .position(|row| whitespace_depth(row) < fold_depth && !row.is_empty())
+            .map_or(editor_config.rows.len() - 1,
+                    |offset| editor_config.cursor_y + offset);
         editor_config.folds.insert(start, (end, fold_depth));
         editor_config.cursor_y = start;
     }
@@ -328,7 +326,10 @@ fn open_folds(editor_config: &mut EditorConfig) {
 }
 
 fn one_row_forward(editor_config: &EditorConfig, index: usize) -> usize {
-    editor_config.folds.get(&index).map_or(index, |&(end, _)| end) + 1
+    editor_config
+        .folds
+        .get(&index)
+        .map_or(index, |&(end, _)| end) + 1
 }
 
 fn one_row_back(editor_config: &EditorConfig, index: usize) -> usize {

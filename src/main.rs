@@ -12,6 +12,8 @@ use std::time::Instant;
 
 use std::collections::HashMap;
 
+use std::cmp::min;
+
 use std::os::raw::c_int;
 use termios::*;
 
@@ -174,13 +176,7 @@ fn check_consistency(editor_config_mut: &mut EditorConfig) {
         let cursor_position_failure =
             if editor_config.cursor_y > editor_config.rows.len() {
                 Some("Cursor y position out of bounds.")
-            } else if editor_config.cursor_y == editor_config.rows.len() {
-                if editor_config.cursor_x > 0 {
-                    Some("Cursor x position is ou of bounds")
-                } else {
-                    None
-                }
-            } else if editor_config.cursor_x > editor_config.rows[editor_config.cursor_y].len() {
+            } else if editor_config.cursor_x > current_row_len(editor_config) {
                 Some("Cursor x position is out of bounds")
             } else {
                 None
@@ -197,7 +193,7 @@ fn check_consistency(editor_config_mut: &mut EditorConfig) {
             }
         }
         let mut fold_fold_failure = None;
-        // This is a bit slow, be warned.
+        // This could be a bit slow, be warned.
         for (&start1, &(end1, _)) in &editor_config.folds {
             for (&start2, &(end2, _)) in &editor_config.folds {
                 if (start1 <= start2 && start2 <= end1 && end1 <= end2) &&
@@ -378,6 +374,13 @@ fn whitespace_depth(row: &Row) -> usize {
 
 /// * row operations **
 
+fn current_row_len(editor_config: &EditorConfig) -> usize {
+    if editor_config.cursor_y == editor_config.rows.len() {
+        0
+    } else {
+        editor_config.rows[editor_config.cursor_y].len()
+    }
+}
 
 
 fn row_to_string(row: &Row) -> String {
@@ -977,11 +980,6 @@ fn screen_line_y(editor_config: &EditorConfig) -> usize {
 }
 
 fn move_cursor(editor_config: &mut EditorConfig, key: EditorKey) {
-    let pre_move_row_len = if editor_config.rows.len() > editor_config.cursor_y {
-        editor_config.rows[editor_config.cursor_y].len()
-    } else {
-        0
-    };
     // Smaller values are up and left
     match key {
         EditorKey::ArrowUp => {
@@ -999,17 +997,13 @@ fn move_cursor(editor_config: &mut EditorConfig, key: EditorKey) {
                 editor_config.cursor_x -= 1
             } else if editor_config.cursor_y > 0 {
                 editor_config.cursor_y -= 1;
-                editor_config.cursor_x = if editor_config.cursor_y < editor_config.rows.len() {
-                    editor_config.rows[editor_config.cursor_y].len()
-                } else {
-                    0
-                };
+                editor_config.cursor_x = current_row_len(editor_config);
             }
         }
         EditorKey::ArrowRight => {
-            if editor_config.cursor_x < pre_move_row_len {
+            if editor_config.cursor_x < current_row_len(editor_config) {
                 editor_config.cursor_x += 1
-            } else if editor_config.cursor_x == pre_move_row_len &&
+            } else if editor_config.cursor_x == current_row_len(editor_config) &&
                       editor_config.cursor_y < editor_config.rows.len() {
                 editor_config.cursor_y += 1;
                 editor_config.cursor_x = 0
@@ -1027,18 +1021,11 @@ fn move_cursor(editor_config: &mut EditorConfig, key: EditorKey) {
             }
         }
         EditorKey::Home => editor_config.cursor_x = 0,
-        EditorKey::End => editor_config.cursor_x = pre_move_row_len,
+        EditorKey::End => editor_config.cursor_x = current_row_len(editor_config),
 
         _ => panic!("Editor move cursor received non moving character"),
     };
-    let post_move_row_len = if editor_config.rows.len() > editor_config.cursor_y {
-        editor_config.rows[editor_config.cursor_y].len()
-    } else {
-        0
-    };
-    if editor_config.cursor_x > post_move_row_len {
-        editor_config.cursor_x = post_move_row_len
-    }
+    editor_config.cursor_x = min(editor_config.cursor_x, current_row_len(editor_config));
 }
 
 fn process_keypress(editor_config: &mut EditorConfig) -> bool {

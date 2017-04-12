@@ -156,17 +156,13 @@ enum EditorKey {
 }
 
 /// * filetypes **
-#[derive(Clone)]
 struct EditorSyntax {
     filetype: String,
     extensions: Vec<String>,
     has_digits: bool,
     quotes: String,
     singleline_comment: String,
-    keyword1s: Vec<String>,
-    keyword2s: Vec<String>,
-    keyword3s: Vec<String>,
-    keyword4s: Vec<String>,
+    keywords: [Vec<String>; 4],
 }
 
 /// * debug **
@@ -407,13 +403,9 @@ fn string_to_row(s: &str) -> Row {
 }
 
 fn update_row(editor_config: &mut EditorConfig, row_index: usize) {
-    if let Some(syntax) = editor_config.syntax.clone() {
+    if let Some(ref syntax) = editor_config.syntax {
         let ref mut row = editor_config.rows[row_index];
         let mut index = 0;
-        let keyword_groups = vec![syntax.keyword1s,
-                                  syntax.keyword2s,
-                                  syntax.keyword3s,
-                                  syntax.keyword4s];
         'outer: while index < row.len() {
             let prev_is_digit_or_sep = index == 0 || is_separator(row[index - 1].chr) ||
                                        row[index - 1].hl == EditorHighlight::Number;
@@ -443,7 +435,7 @@ fn update_row(editor_config: &mut EditorConfig, row_index: usize) {
             } else {
                 if index == 0 || is_separator(row[index - 1].chr) {
                     let following_string: String = row_to_string(&row[index..].to_vec());
-                    for (kind, keywords) in keyword_groups.iter().enumerate() {
+                    for (kind, keywords) in syntax.keywords.iter().enumerate() {
                         let highlight = match kind {
                             0 => EditorHighlight::Keyword1,
                             1 => EditorHighlight::Keyword2,
@@ -483,25 +475,25 @@ fn editor_select_syntax(editor_config: &mut EditorConfig) {
                          has_digits: true,
                          quotes: "\"".to_string(),
                          singleline_comment: "//".to_string(),
-                         keyword1s: vec!["extern", "crate", "use", "as", "impl", "fn", "let",
+                         keywords: [vec!["extern", "crate", "use", "as", "impl", "fn", "let",
                                          "unsafe", "if", "else", "return", "while", "break",
                                          "continue", "loop", "match"]
                                  .iter()
                                  .map(|x| x.to_string())
                                  .collect::<Vec<_>>(),
-                         keyword2s: vec!["const", "static", "struct", "mut", "enum", "ref", "type"]
+                                    vec!["const", "static", "struct", "mut", "enum", "ref", "type"]
                              .iter()
                              .map(|x| x.to_string())
                              .collect::<Vec<_>>(),
-                         keyword3s: vec!["true", "false", "self"]
+                                    vec!["true", "false", "self"]
                              .iter()
                              .map(|x| x.to_string())
                              .collect::<Vec<_>>(),
-                         keyword4s: vec!["bool", "char", "i8", "i16", "i32", "i64", "isize", "u8",
+                                    vec!["bool", "char", "i8", "i16", "i32", "i64", "isize", "u8",
                                          "u16", "u32", "u64", "usize", "f32", "f64", "str"]
                                  .iter()
                                  .map(|x| x.to_string())
-                                 .collect::<Vec<_>>(),
+                                 .collect::<Vec<_>>()],
                      },
                      EditorSyntax {
                          filetype: "c".to_string(),
@@ -509,10 +501,7 @@ fn editor_select_syntax(editor_config: &mut EditorConfig) {
                          has_digits: true,
                          quotes: "\"'".to_string(),
                          singleline_comment: "//".to_string(),
-                         keyword1s: vec![], // TODO: Complete
-                         keyword2s: vec![], // TODO: Complete
-                         keyword3s: vec![], // TODO: Complete
-                         keyword4s: vec![], // TODO: Complete
+                         keywords: [vec![], vec![], vec![], vec![]],
                      }];
             for entry in syntax_database {
                 let extensions = entry.extensions.clone();

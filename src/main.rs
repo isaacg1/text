@@ -171,20 +171,20 @@ struct EditorSyntax {
 fn check_consistency(editor_config_mut: &mut EditorConfig) {
     let failure: Option<&str> = {
         let editor_config = &editor_config_mut;
-        let cursor_position_failure = if editor_config.cursor_y > editor_config.rows.len() {
-            Some("Cursor y position out of bounds.")
-        } else if editor_config.cursor_y ==
-                  editor_config.rows.len() {
-            if editor_config.cursor_x > 0 {
-                Some("Cursor x position is ou of bounds")
+        let cursor_position_failure =
+            if editor_config.cursor_y > editor_config.rows.len() {
+                Some("Cursor y position out of bounds.")
+            } else if editor_config.cursor_y == editor_config.rows.len() {
+                if editor_config.cursor_x > 0 {
+                    Some("Cursor x position is ou of bounds")
+                } else {
+                    None
+                }
+            } else if editor_config.cursor_x > editor_config.rows[editor_config.cursor_y].len() {
+                Some("Cursor x position is out of bounds")
             } else {
                 None
-            }
-        } else if editor_config.cursor_x > editor_config.rows[editor_config.cursor_y].len() {
-            Some("Cursor x position is out of bounds")
-        } else {
-            None
-        };
+            };
         let mut fold_failure = None;
         for (&start, &(end, _)) in &editor_config.folds {
             if start < editor_config.cursor_y && editor_config.cursor_y <= end {
@@ -371,7 +371,9 @@ fn is_separator(c: char) -> bool {
 }
 
 fn whitespace_depth(row: &Row) -> usize {
-    row.iter().position(|cell|!cell.chr.is_whitespace()).unwrap_or_else(||row.len())
+    row.iter()
+        .position(|cell| !cell.chr.is_whitespace())
+        .unwrap_or_else(|| row.len())
 }
 
 /// * row operations **
@@ -648,7 +650,10 @@ fn editor_save(editor_config: &mut EditorConfig) -> io::Result<()> {
         }
     }
 
-    let filename = editor_config.filename.clone().expect("Just made the filename some.");
+    let filename = editor_config
+        .filename
+        .clone()
+        .expect("Just made the filename Some().");
     let mut file = File::create(filename)?;
     let mut text = editor_config
         .rows
@@ -681,10 +686,12 @@ fn editor_find_callback(editor_config: &mut EditorConfig, query: &str, key: Edit
             } else {
                 None
             };
-            potential_match.or_else(||editor_config
-                                   .rows
-                                   .iter()
-                                   .position(|row| row_to_string(row).contains(query)))
+            potential_match.or_else(|| {
+                                        editor_config
+                                            .rows
+                                            .iter()
+                                            .position(|row| row_to_string(row).contains(query))
+                                    })
         } else if key == EditorKey::ArrowLeft || key == EditorKey::ArrowUp {
             let potential_match = if editor_config.cursor_y > 1 {
                 editor_config.rows[..editor_config.cursor_y]
@@ -693,10 +700,12 @@ fn editor_find_callback(editor_config: &mut EditorConfig, query: &str, key: Edit
             } else {
                 None
             };
-            potential_match.or_else(|| editor_config
-                                   .rows
-                                   .iter()
-                                   .rposition(|row| row_to_string(row).contains(query)))
+            potential_match.or_else(|| {
+                                        editor_config
+                                            .rows
+                                            .iter()
+                                            .rposition(|row| row_to_string(row).contains(query))
+                                    })
         } else {
             let potential_match = if editor_config.cursor_y < editor_config.rows.len() - 1 {
                 editor_config.rows[editor_config.cursor_y..]
@@ -706,10 +715,12 @@ fn editor_find_callback(editor_config: &mut EditorConfig, query: &str, key: Edit
             } else {
                 None
             };
-            potential_match.or_else(|| editor_config
-                                   .rows
-                                   .iter()
-                                   .position(|row| row_to_string(row).contains(query)))
+            potential_match.or_else(|| {
+                                        editor_config
+                                            .rows
+                                            .iter()
+                                            .position(|row| row_to_string(row).contains(query))
+                                    })
         };
         if let Some(match_line) = match_line {
             let match_index = row_to_string(&editor_config.rows[match_line])
@@ -840,7 +851,7 @@ fn editor_draw_status_bar(editor_config: &EditorConfig, append_buffer: &mut Stri
     let mut name = editor_config
         .filename
         .clone()
-        .unwrap_or_else(||"[No Name]".to_string());
+        .unwrap_or_else(|| "[No Name]".to_string());
     name.truncate(20);
     let dirty = if editor_config.modified {
         "(modified)"

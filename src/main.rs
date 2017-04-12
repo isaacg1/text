@@ -50,12 +50,14 @@ const CLEAR_SCREEN: &'static str = "\x1b[2J";
 
 /// * data **
 
+type Row = Vec<Cell>;
+
 struct EditorConfig {
     cursor_x: usize,
     cursor_y: usize,
     screen_rows: usize,
     screen_cols: usize,
-    rows: Vec<Vec<(char, EditorHighlight)>>,
+    rows: Vec<Row>,
     row_offset: usize,
     col_offset: usize,
     orig_termios: Termios,
@@ -102,6 +104,12 @@ impl EditorConfig {
             }
         }
     }
+}
+
+#[derive(Copy, Clone)]
+struct Cell {
+    chr: char,
+    hl: EditorHighlight,
 }
 
 #[derive(Copy, Clone, PartialEq)]
@@ -372,7 +380,7 @@ fn is_separator(c: char) -> bool {
 
 fn whitespace_depth(row: &Row) -> usize {
     for index in 0..row.len() {
-        if !row[index].0.is_whitespace() {
+        if !row[index].chr.is_whitespace() {
             return index;
         }
     }
@@ -382,15 +390,19 @@ fn whitespace_depth(row: &Row) -> usize {
 /// * row operations **
 
 
-type Row = Vec<(char, EditorHighlight)>;
 
 fn row_to_string(row: &Row) -> String {
-    row.iter().map(|&(c, _)| c).collect::<String>()
+    row.iter().map(|&cell| cell.chr).collect::<String>()
 }
 
 fn string_to_row(s: &str) -> Row {
     s.chars()
-        .map(|c| (c, EditorHighlight::Normal))
+        .map(|c| {
+                 Cell {
+                     chr: c,
+                     hl: EditorHighlight::Normal,
+                 }
+             })
         .collect()
 }
 
@@ -403,33 +415,33 @@ fn update_row(editor_config: &mut EditorConfig, row_index: usize) {
                                   syntax.keyword3s,
                                   syntax.keyword4s];
         'outer: while index < row.len() {
-            let prev_is_digit_or_sep = index == 0 || is_separator(row[index - 1].0) ||
-                                       row[index - 1].1 == EditorHighlight::Number;
-            if syntax.has_digits && row[index].0.is_digit(10) && prev_is_digit_or_sep {
-                row[index].1 = EditorHighlight::Number
-            } else if syntax.quotes.contains(row[index].0) {
-                let start_quote = row[index].0;
-                row[index].1 = EditorHighlight::String;
+            let prev_is_digit_or_sep = index == 0 || is_separator(row[index - 1].chr) ||
+                                       row[index - 1].hl == EditorHighlight::Number;
+            if syntax.has_digits && row[index].chr.is_digit(10) && prev_is_digit_or_sep {
+                row[index].hl = EditorHighlight::Number
+            } else if syntax.quotes.contains(row[index].chr) {
+                let start_quote = row[index].chr;
+                row[index].hl = EditorHighlight::String;
                 index += 1;
                 while index < row.len() {
-                    row[index].1 = EditorHighlight::String;
-                    if row[index].0 == start_quote {
+                    row[index].hl = EditorHighlight::String;
+                    if row[index].chr == start_quote {
                         break;
                     };
-                    if row[index].0 == '\\' && index + 1 < row.len() {
+                    if row[index].chr == '\\' && index + 1 < row.len() {
                         index += 1;
-                        row[index].1 = EditorHighlight::String;
+                        row[index].hl = EditorHighlight::String;
                     }
                     index += 1;
                 }
             } else if row_to_string(&row[index..].to_vec())
                           .starts_with(&syntax.singleline_comment) {
                 for comment_index in index..row.len() {
-                    row[comment_index].1 = EditorHighlight::Comment;
+                    row[comment_index].hl = EditorHighlight::Comment;
                 }
                 break;
             } else {
-                if index == 0 || is_separator(row[index - 1].0) {
+                if index == 0 || is_separator(row[index - 1].chr) {
                     let following_string: String = row_to_string(&row[index..].to_vec());
                     for (kind, keywords) in keyword_groups.iter().enumerate() {
                         let highlight = match kind {
@@ -442,10 +454,10 @@ fn update_row(editor_config: &mut EditorConfig, row_index: usize) {
                         for keyword in keywords {
                             if following_string.starts_with(keyword) &&
                                (index + keyword.len() >= row.len() ||
-                                is_separator(row[index + keyword.len()].0)) {
+                                is_separator(row[index + keyword.len()].chr)) {
                                 let keyword_end = index + keyword.len();
                                 while index < keyword_end {
-                                    row[index].1 = highlight;
+                                    row[index].hl = highlight;
                                     index += 1;
                                 }
                                 continue 'outer;
@@ -453,7 +465,7 @@ fn update_row(editor_config: &mut EditorConfig, row_index: usize) {
                         }
                     }
                 }
-                row[index].1 = EditorHighlight::Normal
+                row[index].hl = EditorHighlight::Normal
             };
             index += 1;
         }
@@ -530,7 +542,10 @@ fn editor_insert_char(editor_config: &mut EditorConfig, c: char) {
             editor_config.rows.push(Vec::new());
         }
         editor_config.rows[editor_config.cursor_y].insert(editor_config.cursor_x,
-                                                          (c, EditorHighlight::Normal));
+                                                          Cell {
+                                                              chr: c,
+                                                              hl: EditorHighlight::Normal,
+                                                          });
         let index = editor_config.cursor_y;
         update_row(editor_config, index);
         editor_config.cursor_x += 1;
@@ -725,8 +740,8 @@ fn editor_find_callback(editor_config: &mut EditorConfig, query: &str, key: Edit
             open_folds(editor_config);
             editor_config.cursor_x = match_index;
             editor_config.row_offset = editor_config.rows.len();
-            for elem in editor_config.rows[match_line][match_index..][..query.len()].iter_mut() {
-                elem.1 = EditorHighlight::Match
+            for cell in editor_config.rows[match_line][match_index..][..query.len()].iter_mut() {
+                cell.hl = EditorHighlight::Match
             }
         }
     }
@@ -788,7 +803,8 @@ fn editor_draw_rows(editor_config: &EditorConfig, append_buffer: &mut String) {
             let ref current_row = editor_config.rows[file_row];
             if editor_config.col_offset < current_row.len() {
                 let mut current_hl = EditorHighlight::Normal;
-                for &(c, hl) in current_row
+                for &Cell { chr, hl } in
+                    current_row
                         .iter()
                         .skip(editor_config.col_offset)
                         .take(editor_config.screen_cols) {
@@ -796,13 +812,13 @@ fn editor_draw_rows(editor_config: &EditorConfig, append_buffer: &mut String) {
                         current_hl = hl;
                         append_buffer.push_str(hl.color());
                     }
-                    if c == '\t' {
+                    if chr == '\t' {
                         append_buffer.push_str(tab);
                     } else {
-                        if c.is_control() {
+                        if chr.is_control() {
                             append_buffer.push_str(INVERT_COLORS);
-                            let sym = if c as u8 <= 26 {
-                                (64 + (c as u8)) as char
+                            let sym = if chr as u8 <= 26 {
+                                (64 + (chr as u8)) as char
                             } else {
                                 '?'
                             };
@@ -810,7 +826,7 @@ fn editor_draw_rows(editor_config: &EditorConfig, append_buffer: &mut String) {
                             append_buffer.push_str(REVERT_COLORS);
                             append_buffer.push_str(hl.color());
                         } else {
-                            append_buffer.push(c);
+                            append_buffer.push(chr);
                         }
                     }
                 }
@@ -956,7 +972,7 @@ fn render_x(editor_config: &EditorConfig) -> usize {
     if editor_config.cursor_y < editor_config.rows.len() {
         let mut row = editor_config.rows[editor_config.cursor_y].clone();
         row.truncate(editor_config.cursor_x);
-        row.iter().filter(|&&(c, _)| c == '\t').count() * (TAB_STOP - 1)
+        row.iter().filter(|&&c| c.chr == '\t').count() * (TAB_STOP - 1)
     } else {
         0
     }

@@ -1,4 +1,6 @@
-#![allow(dead_code)]
+#![allow(unknown_lints)]
+#![warn(clippy_pedantic)]
+#![allow(print_stdout, missing_docs_in_private_items, ptr_arg)]
 extern crate termios;
 extern crate libc;
 
@@ -31,7 +33,6 @@ const REVERT_COLORS: &'static str = "\x1b[m";
 
 const RED: &'static str = "\x1b[31m\x1b[49m";
 const MAGENTA: &'static str = "\x1b[1m\x1b[35m\x1b[49m";
-const WHITE: &'static str = "\x1b[37m\x1b[49m";
 const CYAN: &'static str = "\x1b[36m\x1b[49m";
 const YELLOW: &'static str = "\x1b[33m\x1b[49m";
 const BRIGHT_YELLOW: &'static str = "\x1b[1m\x1b[33m\x1b[49m";
@@ -141,7 +142,7 @@ impl EditorHighlight {
     }
 }
 
-#[derive(PartialEq)]
+#[derive(Copy, Clone, PartialEq)]
 enum EditorKey {
     Verbatim(char),
     ArrowLeft,
@@ -169,7 +170,7 @@ struct EditorSyntax {
 
 fn check_consistency(editor_config_mut: &mut EditorConfig) {
     let failure: Option<&str> = {
-        let ref editor_config = editor_config_mut;
+        let editor_config = &editor_config_mut;
         let cursor_position_failure = if editor_config.cursor_y > editor_config.rows.len() {
             Some("Cursor y position out of bounds.")
         } else if editor_config.cursor_y ==
@@ -179,15 +180,13 @@ fn check_consistency(editor_config_mut: &mut EditorConfig) {
             } else {
                 None
             }
+        } else if editor_config.cursor_x > editor_config.rows[editor_config.cursor_y].len() {
+            Some("Cursor x position is out of bounds")
         } else {
-            if editor_config.cursor_x > editor_config.rows[editor_config.cursor_y].len() {
-                Some("Cursor x position is out of bounds")
-            } else {
-                None
-            }
+            None
         };
         let mut fold_failure = None;
-        for (&start, &(end, _)) in editor_config.folds.iter() {
+        for (&start, &(end, _)) in &editor_config.folds {
             if start < editor_config.cursor_y && editor_config.cursor_y <= end {
                 fold_failure = Some("Cursor is inside a fold");
                 break;
@@ -199,8 +198,8 @@ fn check_consistency(editor_config_mut: &mut EditorConfig) {
         }
         let mut fold_fold_failure = None;
         // This is a bit slow, be warned.
-        for (&start1, &(end1, _)) in editor_config.folds.iter() {
-            for (&start2, &(end2, _)) in editor_config.folds.iter() {
+        for (&start1, &(end1, _)) in &editor_config.folds {
+            for (&start2, &(end2, _)) in &editor_config.folds {
                 if (start1 <= start2 && start2 <= end1 && end1 <= end2) &&
                    !(start1 == start2 && end1 == end2) {
                     fold_fold_failure = Some("Two folds overlap");
@@ -221,7 +220,7 @@ fn check_consistency(editor_config_mut: &mut EditorConfig) {
 fn enable_raw_mode() -> io::Result<Termios> {
     let orig_termios = Termios::from_fd(STDIN)?;
 
-    let mut termios = orig_termios.clone();
+    let mut termios = orig_termios;
 
     termios.c_cflag |= CS8;
     termios.c_iflag &= !(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
@@ -230,13 +229,13 @@ fn enable_raw_mode() -> io::Result<Termios> {
     termios.c_cc[VMIN] = 0; // Return on any characters read;
     termios.c_cc[VTIME] = 1; //Wait for 0.1 seconds.
 
-    tcsetattr(STDIN, TCSAFLUSH, &mut termios)?;
+    tcsetattr(STDIN, TCSAFLUSH, &termios)?;
 
     Ok(orig_termios)
 }
 
-fn restore_orig_mode(editor_config: &mut EditorConfig) -> io::Result<()> {
-    tcsetattr(STDIN, TCSAFLUSH, &mut editor_config.orig_termios)
+fn restore_orig_mode(editor_config: &EditorConfig) -> io::Result<()> {
+    tcsetattr(STDIN, TCSAFLUSH, &editor_config.orig_termios)
 }
 
 fn editor_read_key() -> EditorKey {
@@ -256,13 +255,11 @@ fn editor_read_key() -> EditorKey {
                 if escape_buf[0] as char == '[' {
                     if escape_buf[2] as char == '~' {
                         match escape_buf[1] as char {
-                            '1' => return EditorKey::Home,
+                            '1' | '7' => return EditorKey::Home,
                             '3' => return EditorKey::Delete,
-                            '4' => return EditorKey::End,
+                            '4' | '8' => return EditorKey::End,
                             '5' => return EditorKey::PageUp,
                             '6' => return EditorKey::PageDown,
-                            '7' => return EditorKey::Home,
-                            '8' => return EditorKey::End,
                             _ => (),
                         }
                     } else {
@@ -307,7 +304,7 @@ fn create_fold(editor_config: &mut EditorConfig) {
         let start;
         loop {
             let depth = whitespace_depth(&editor_config.rows[back_index]);
-            if depth < fold_depth && editor_config.rows[back_index].len() > 0 {
+            if depth < fold_depth && !editor_config.rows[back_index].is_empty() {
                 start = back_index + 1;
                 break;
             }
@@ -321,7 +318,7 @@ fn create_fold(editor_config: &mut EditorConfig) {
         let end;
         loop {
             let depth = whitespace_depth(&editor_config.rows[forward_index]);
-            if depth < fold_depth && editor_config.rows[forward_index].len() > 0 {
+            if depth < fold_depth && !editor_config.rows[forward_index].is_empty() {
                 end = forward_index - 1;
                 break;
             }
@@ -337,7 +334,7 @@ fn create_fold(editor_config: &mut EditorConfig) {
 }
 
 fn open_folds(editor_config: &mut EditorConfig) {
-    for (&start, &(end, _depth)) in editor_config.folds.clone().iter() {
+    for (start, (end, _depth)) in editor_config.folds.clone() {
         if start <= editor_config.cursor_y && editor_config.cursor_y <= end {
             editor_config.folds.remove(&start);
         }
@@ -357,8 +354,7 @@ fn one_row_back(editor_config: &EditorConfig, index: usize) -> usize {
             editor_config
                 .folds
                 .iter()
-                .filter(|&(_start, &(end, _depth))| end == editor_config.cursor_y - 1)
-                .next() {
+                .find(|&(_start, &(end, _depth))| end == editor_config.cursor_y - 1) {
             start
         } else {
             index - 1
@@ -375,12 +371,7 @@ fn is_separator(c: char) -> bool {
 }
 
 fn whitespace_depth(row: &Row) -> usize {
-    for index in 0..row.len() {
-        if !row[index].chr.is_whitespace() {
-            return index;
-        }
-    }
-    return row.len();
+    row.iter().position(|cell|!cell.chr.is_whitespace()).unwrap_or_else(||row.len())
 }
 
 /// * row operations **
@@ -404,7 +395,7 @@ fn string_to_row(s: &str) -> Row {
 
 fn update_row(editor_config: &mut EditorConfig, row_index: usize) {
     if let Some(ref syntax) = editor_config.syntax {
-        let ref mut row = editor_config.rows[row_index];
+        let row = &mut editor_config.rows[row_index];
         let mut index = 0;
         'outer: while index < row.len() {
             let prev_is_digit_or_sep = index == 0 || is_separator(row[index - 1].chr) ||
@@ -428,8 +419,8 @@ fn update_row(editor_config: &mut EditorConfig, row_index: usize) {
                 }
             } else if row_to_string(&row[index..].to_vec())
                           .starts_with(&syntax.singleline_comment) {
-                for comment_index in index..row.len() {
-                    row[comment_index].hl = EditorHighlight::Comment;
+                for cell in row.iter_mut().skip(index) {
+                    cell.hl = EditorHighlight::Comment;
                 }
                 break;
             } else {
@@ -553,7 +544,7 @@ fn editor_insert_newline(editor_config: &mut EditorConfig) {
             let mut next_row;
             let will_clear_row;
             {
-                let ref row = editor_config.rows[editor_config.cursor_y];
+                let row = &editor_config.rows[editor_config.cursor_y];
                 depth = whitespace_depth(row);
                 next_row = row[..depth].to_vec();
                 will_clear_row = row.len() == depth && editor_config.cursor_x == row.len();
@@ -595,31 +586,29 @@ fn editor_delete_char(editor_config: &mut EditorConfig) {
     if editor_config.folds.contains_key(&editor_config.cursor_y) {
         editor_set_status_message(editor_config,
                                   "Folded lines can't be edited. Ctrl-Space to unfold.")
-    } else {
-        if editor_config.cursor_x > 0 {
-            editor_config.rows[editor_config.cursor_y].remove(editor_config.cursor_x - 1);
-            let index = editor_config.cursor_y;
-            update_row(editor_config, index);
-            editor_config.cursor_x -= 1;
-            editor_config.modified = true
-        } else if 0 < editor_config.cursor_y && editor_config.cursor_y < editor_config.rows.len() {
-            editor_config.cursor_x = editor_config.rows[editor_config.cursor_y - 1].len();
-            let append_line = editor_config.rows[editor_config.cursor_y].clone();
-            let append_line = append_line[whitespace_depth(&append_line)..].to_vec();
-            editor_config.rows[editor_config.cursor_y - 1].extend(&append_line);
-            for row_index in editor_config.cursor_y..editor_config.rows.len() {
-                if let Some((end, depth)) = editor_config.folds.remove(&row_index) {
-                    editor_config
-                        .folds
-                        .insert(row_index - 1, (end - 1, depth));
-                }
+    } else if editor_config.cursor_x > 0 {
+        editor_config.rows[editor_config.cursor_y].remove(editor_config.cursor_x - 1);
+        let index = editor_config.cursor_y;
+        update_row(editor_config, index);
+        editor_config.cursor_x -= 1;
+        editor_config.modified = true
+    } else if 0 < editor_config.cursor_y && editor_config.cursor_y < editor_config.rows.len() {
+        editor_config.cursor_x = editor_config.rows[editor_config.cursor_y - 1].len();
+        let append_line = editor_config.rows[editor_config.cursor_y].clone();
+        let append_line = append_line[whitespace_depth(&append_line)..].to_vec();
+        editor_config.rows[editor_config.cursor_y - 1].extend(&append_line);
+        for row_index in editor_config.cursor_y..editor_config.rows.len() {
+            if let Some((end, depth)) = editor_config.folds.remove(&row_index) {
+                editor_config
+                    .folds
+                    .insert(row_index - 1, (end - 1, depth));
             }
-            let index = editor_config.cursor_y - 1;
-            update_row(editor_config, index);
-            editor_config.rows.remove(editor_config.cursor_y);
-            editor_config.cursor_y -= 1;
-            editor_config.modified = true
-        };
+        }
+        let index = editor_config.cursor_y - 1;
+        update_row(editor_config, index);
+        editor_config.rows.remove(editor_config.cursor_y);
+        editor_config.cursor_y -= 1;
+        editor_config.modified = true
     }
 }
 
@@ -659,7 +648,7 @@ fn editor_save(editor_config: &mut EditorConfig) -> io::Result<()> {
         }
     }
 
-    let filename = editor_config.filename.clone().unwrap();
+    let filename = editor_config.filename.clone().expect("Just made the filename some.");
     let mut file = File::create(filename)?;
     let mut text = editor_config
         .rows
@@ -671,7 +660,7 @@ fn editor_save(editor_config: &mut EditorConfig) -> io::Result<()> {
     file.write_all(text.as_bytes())?;
     editor_config.modified = false;
     editor_set_status_message(editor_config,
-                              &mut format!("{} bytes written to disk", text.len()));
+                              &format!("{} bytes written to disk", text.len()));
     Ok(())
 }
 
@@ -692,7 +681,7 @@ fn editor_find_callback(editor_config: &mut EditorConfig, query: &str, key: Edit
             } else {
                 None
             };
-            potential_match.or(editor_config
+            potential_match.or_else(||editor_config
                                    .rows
                                    .iter()
                                    .position(|row| row_to_string(row).contains(query)))
@@ -704,7 +693,7 @@ fn editor_find_callback(editor_config: &mut EditorConfig, query: &str, key: Edit
             } else {
                 None
             };
-            potential_match.or(editor_config
+            potential_match.or_else(|| editor_config
                                    .rows
                                    .iter()
                                    .rposition(|row| row_to_string(row).contains(query)))
@@ -717,7 +706,7 @@ fn editor_find_callback(editor_config: &mut EditorConfig, query: &str, key: Edit
             } else {
                 None
             };
-            potential_match.or(editor_config
+            potential_match.or_else(|| editor_config
                                    .rows
                                    .iter()
                                    .position(|row| row_to_string(row).contains(query)))
@@ -790,7 +779,7 @@ fn editor_draw_rows(editor_config: &EditorConfig, append_buffer: &mut String) {
             append_buffer.push_str(REVERT_COLORS);
             file_row = fold_end + 1;
         } else if file_row < editor_config.rows.len() {
-            let ref current_row = editor_config.rows[file_row];
+            let current_row = &editor_config.rows[file_row];
             if editor_config.col_offset < current_row.len() {
                 let mut current_hl = EditorHighlight::Normal;
                 for &Cell { chr, hl } in
@@ -804,26 +793,24 @@ fn editor_draw_rows(editor_config: &EditorConfig, append_buffer: &mut String) {
                     }
                     if chr == '\t' {
                         append_buffer.push_str(tab);
-                    } else {
-                        if chr.is_control() {
-                            append_buffer.push_str(INVERT_COLORS);
-                            let sym = if chr as u8 <= 26 {
-                                (64 + (chr as u8)) as char
-                            } else {
-                                '?'
-                            };
-                            append_buffer.push(sym);
-                            append_buffer.push_str(REVERT_COLORS);
-                            append_buffer.push_str(hl.color());
+                    } else if chr.is_control() {
+                        append_buffer.push_str(INVERT_COLORS);
+                        let sym = if chr as u8 <= 26 {
+                            (64 + (chr as u8)) as char
                         } else {
-                            append_buffer.push(chr);
-                        }
+                            '?'
+                        };
+                        append_buffer.push(sym);
+                        append_buffer.push_str(REVERT_COLORS);
+                        append_buffer.push_str(hl.color());
+                    } else {
+                        append_buffer.push(chr);
                     }
                 }
                 append_buffer.push_str(REVERT_COLORS);
             }
             file_row += 1;
-        } else if editor_config.rows.len() == 0 && screen_y == editor_config.screen_rows / 3 {
+        } else if editor_config.rows.is_empty() && screen_y == editor_config.screen_rows / 3 {
             let welcome = format!("Isaac's editor -- version {}", IED_VERSION);
             let padding = if welcome.len() < editor_config.screen_cols {
                 (editor_config.screen_cols - welcome.len()) / 2
@@ -853,7 +840,7 @@ fn editor_draw_status_bar(editor_config: &EditorConfig, append_buffer: &mut Stri
     let mut name = editor_config
         .filename
         .clone()
-        .unwrap_or("[No Name]".to_string());
+        .unwrap_or_else(||"[No Name]".to_string());
     name.truncate(20);
     let dirty = if editor_config.modified {
         "(modified)"
@@ -934,7 +921,7 @@ fn editor_prompt(editor_config: &mut EditorConfig,
             };
             return None;
         } else if c == EditorKey::Verbatim('\r') {
-            if response.len() > 0 {
+            if !response.is_empty() {
                 editor_set_status_message(editor_config, "");
                 if let Some(callback) = callback {
                     callback(editor_config, &response, c)
@@ -943,7 +930,7 @@ fn editor_prompt(editor_config: &mut EditorConfig,
             }
         } else if c == EditorKey::Delete || c == EditorKey::Verbatim(ctrl_key('h')) ||
                   c == EditorKey::Verbatim(127 as char) {
-            if response.len() > 0 {
+            if !response.is_empty() {
                 response.pop();
             }
         } else if let EditorKey::Verbatim(c) = c {
@@ -979,7 +966,7 @@ fn screen_line_y(editor_config: &EditorConfig) -> usize {
 }
 
 fn editor_move_cursor(editor_config: &mut EditorConfig, key: EditorKey) {
-    let row_len = if editor_config.rows.len() > editor_config.cursor_y {
+    let pre_move_row_len = if editor_config.rows.len() > editor_config.cursor_y {
         editor_config.rows[editor_config.cursor_y].len()
     } else {
         0
@@ -1009,9 +996,9 @@ fn editor_move_cursor(editor_config: &mut EditorConfig, key: EditorKey) {
             }
         }
         EditorKey::ArrowRight => {
-            if editor_config.cursor_x < row_len {
+            if editor_config.cursor_x < pre_move_row_len {
                 editor_config.cursor_x += 1
-            } else if editor_config.cursor_x == row_len &&
+            } else if editor_config.cursor_x == pre_move_row_len &&
                       editor_config.cursor_y < editor_config.rows.len() {
                 editor_config.cursor_y += 1;
                 editor_config.cursor_x = 0
@@ -1029,17 +1016,17 @@ fn editor_move_cursor(editor_config: &mut EditorConfig, key: EditorKey) {
             }
         }
         EditorKey::Home => editor_config.cursor_x = 0,
-        EditorKey::End => editor_config.cursor_x = row_len,
+        EditorKey::End => editor_config.cursor_x = pre_move_row_len,
 
         _ => panic!("Editor move cursor received non moving character"),
     };
-    let row_len = if editor_config.rows.len() > editor_config.cursor_y {
+    let post_move_row_len = if editor_config.rows.len() > editor_config.cursor_y {
         editor_config.rows[editor_config.cursor_y].len()
     } else {
         0
     };
-    if editor_config.cursor_x > row_len {
-        editor_config.cursor_x = row_len
+    if editor_config.cursor_x > post_move_row_len {
+        editor_config.cursor_x = post_move_row_len
     }
 }
 
@@ -1075,7 +1062,7 @@ fn editor_process_keypress(editor_config: &mut EditorConfig) -> bool {
                     Ok(()) => (),
                     Err(e) => {
                         editor_set_status_message(editor_config,
-                                                  &mut format!("Saving failed with {}", e))
+                                                  &format!("Saving failed with {}", e))
                     }
                 }
             }
@@ -1117,7 +1104,7 @@ fn main() {
         }
     }
 
-    match restore_orig_mode(&mut editor_config) {
+    match restore_orig_mode(&editor_config) {
         Ok(()) => (),
         Err(e) => panic!("Disabling raw mode failed with {}", e),
     };

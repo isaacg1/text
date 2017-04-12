@@ -519,7 +519,7 @@ fn select_syntax(editor_config: &mut EditorConfig) {
 fn insert_char(editor_config: &mut EditorConfig, c: char) {
     if editor_config.folds.contains_key(&editor_config.cursor_y) {
         set_status_message(editor_config,
-                                  "Folded lines can't be edited. Ctrl-Space to unfold.")
+                           "Folded lines can't be edited. Ctrl-Space to unfold.")
     } else {
         if editor_config.cursor_y == editor_config.rows.len() {
             editor_config.rows.push(Vec::new());
@@ -539,7 +539,7 @@ fn insert_char(editor_config: &mut EditorConfig, c: char) {
 fn insert_newline(editor_config: &mut EditorConfig) {
     if editor_config.folds.contains_key(&editor_config.cursor_y) {
         set_status_message(editor_config,
-                                  "Folded lines can't be edited. Ctrl-Space to unfold.")
+                           "Folded lines can't be edited. Ctrl-Space to unfold.")
     } else {
         if editor_config.cursor_y < editor_config.rows.len() {
             let depth;
@@ -587,7 +587,7 @@ fn insert_newline(editor_config: &mut EditorConfig) {
 fn delete_char(editor_config: &mut EditorConfig) {
     if editor_config.folds.contains_key(&editor_config.cursor_y) {
         set_status_message(editor_config,
-                                  "Folded lines can't be edited. Ctrl-Space to unfold.")
+                           "Folded lines can't be edited. Ctrl-Space to unfold.")
     } else if editor_config.cursor_x > 0 {
         editor_config.rows[editor_config.cursor_y].remove(editor_config.cursor_x - 1);
         let index = editor_config.cursor_y;
@@ -665,7 +665,7 @@ fn save(editor_config: &mut EditorConfig) -> io::Result<()> {
     file.write_all(text.as_bytes())?;
     editor_config.modified = false;
     set_status_message(editor_config,
-                              &format!("{} bytes written to disk", text.len()));
+                       &format!("{} bytes written to disk", text.len()));
     Ok(())
 }
 
@@ -744,8 +744,8 @@ fn find(editor_config: &mut EditorConfig) {
     let saved_row_offset = editor_config.row_offset;
 
     let query = prompt(editor_config,
-                              "Search (ESC/Arrows/Enter): ",
-                              Some(&find_callback));
+                       "Search (ESC/Arrows/Enter): ",
+                       Some(&find_callback));
 
     if query.is_none() {
         editor_config.cursor_x = saved_cursor_x;
@@ -916,9 +916,9 @@ fn set_status_message(editor_config: &mut EditorConfig, message: &str) {
 /// * input **
 
 fn prompt(editor_config: &mut EditorConfig,
-                 prompt: &str,
-                 callback: Option<&Fn(&mut EditorConfig, &str, EditorKey) -> ()>)
-                 -> Option<String> {
+          prompt: &str,
+          callback: Option<&Fn(&mut EditorConfig, &str, EditorKey) -> ()>)
+          -> Option<String> {
     let mut response = String::new();
     loop {
         set_status_message(editor_config, &format!("{}{}", prompt, response));
@@ -1048,9 +1048,9 @@ fn process_keypress(editor_config: &mut EditorConfig) -> bool {
         if editor_config.modified && editor_config.quit_times > 0 {
             let quit_times = editor_config.quit_times;
             set_status_message(editor_config,
-                                      &format!("Warning: File has unsaved changes. Ctrl-S to \
+                               &format!("Warning: File has unsaved changes. Ctrl-S to \
                                                 save, or press Ctrl-Q {} more times to quit.",
-                                               quit_times));
+                                        quit_times));
             editor_config.quit_times -= 1;
             true
         } else {
@@ -1072,8 +1072,7 @@ fn process_keypress(editor_config: &mut EditorConfig) -> bool {
                 match save(editor_config) {
                     Ok(()) => (),
                     Err(e) => {
-                        set_status_message(editor_config,
-                                                  &format!("Saving failed with {}", e))
+                        set_status_message(editor_config, &format!("Saving failed with {}", e))
                     }
                 }
             }
@@ -1104,8 +1103,8 @@ fn main() {
     }
 
     set_status_message(&mut editor_config,
-                              "Help: Ctrl-S = save, Ctrl-Q = quit, \
-                              Ctrl-F = find, Ctrl-Space = fold.");
+                       "Help: Ctrl-S = save, Ctrl-Q = quit, \
+                       Ctrl-F = find, Ctrl-Space = fold.");
     loop {
         check_consistency(&mut editor_config);
         refresh_screen(&mut editor_config);

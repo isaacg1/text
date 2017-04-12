@@ -428,10 +428,10 @@ fn update_row_highlights(editor_config: &mut EditorConfig, row_index: usize) {
                             _ => panic!("There should only be four things in the list."),
                         };
                         for keyword in keywords {
+                            let keyword_end = index + keyword.len();
                             if following_string.starts_with(keyword) &&
-                               (index + keyword.len() >= row.len() ||
-                                is_separator(row[index + keyword.len()].chr)) {
-                                let keyword_end = index + keyword.len();
+                               (keyword_end == row.len() ||
+                                is_separator(row[keyword_end].chr)) {
                                 while index < keyword_end {
                                     row[index].hl = highlight;
                                     index += 1;
@@ -533,34 +533,27 @@ fn insert_newline(editor_config: &mut EditorConfig) {
                            "Folded lines can't be edited. Ctrl-Space to unfold.")
     } else {
         if editor_config.cursor_y < editor_config.rows.len() {
-            let depth;
-            let mut next_row;
-            let will_clear_row;
-            {
-                let row = &editor_config.rows[editor_config.cursor_y];
-                depth = whitespace_depth(row);
-                next_row = row[..depth].to_vec();
-                will_clear_row = row.len() == depth && editor_config.cursor_x == row.len();
-            }
+            let depth = whitespace_depth(&editor_config.rows[editor_config.cursor_y]);
+            // If in the whitespace, insert blank line.
+            if depth >= editor_config.cursor_x {
+                editor_config.rows.insert(editor_config.cursor_y, vec![]);
+            } else {
+                let mut next_row = editor_config.rows[editor_config.cursor_y][..depth].to_vec();
 
-            let row_end = editor_config.rows[editor_config.cursor_y]
-                .split_off(editor_config.cursor_x);
-            next_row.extend(row_end);
-            editor_config
-                .rows
-                .insert(editor_config.cursor_y + 1, next_row);
-            for row_index in (editor_config.cursor_y..editor_config.rows.len()).rev() {
-                if let Some((end, depth)) = editor_config.folds.remove(&row_index) {
-                    editor_config
-                        .folds
-                        .insert(row_index + 1, (end + 1, depth));
+                let row_end = editor_config.rows[editor_config.cursor_y]
+                    .split_off(editor_config.cursor_x);
+                next_row.extend(row_end);
+                editor_config
+                    .rows
+                    .insert(editor_config.cursor_y + 1, next_row);
+                for row_index in (editor_config.cursor_y..editor_config.rows.len()).rev() {
+                    if let Some((end, depth)) = editor_config.folds.remove(&row_index) {
+                        editor_config
+                            .folds
+                            .insert(row_index + 1, (end + 1, depth));
+                    }
                 }
             }
-
-            if will_clear_row {
-                editor_config.rows[editor_config.cursor_y] = Vec::new();
-            }
-
             let index = editor_config.cursor_y;
             update_row_highlights(editor_config, index);
             update_row_highlights(editor_config, index + 1);

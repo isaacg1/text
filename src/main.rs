@@ -212,7 +212,7 @@ fn check_consistency(editor_config_mut: &mut EditorConfig) {
             .or(fold_fold_failure)
     };
     if let Some(message) = failure {
-        editor_set_status_message(editor_config_mut, message);
+        set_status_message(editor_config_mut, message);
     }
 }
 
@@ -238,7 +238,7 @@ fn restore_orig_mode(editor_config: &EditorConfig) -> io::Result<()> {
     tcsetattr(STDIN, TCSAFLUSH, &editor_config.orig_termios)
 }
 
-fn editor_read_key() -> EditorKey {
+fn read_key() -> EditorKey {
     let mut buffer: [u8; 1] = [0];
     loop {
         match io::stdin().read(&mut buffer) {
@@ -457,7 +457,7 @@ fn update_row(editor_config: &mut EditorConfig, row_index: usize) {
     }
 }
 
-fn editor_select_syntax(editor_config: &mut EditorConfig) {
+fn select_syntax(editor_config: &mut EditorConfig) {
     match editor_config.filename.clone() {
         None => editor_config.syntax = None,
         Some(filename) => {
@@ -516,9 +516,9 @@ fn editor_select_syntax(editor_config: &mut EditorConfig) {
 
 /// * editor operations **
 
-fn editor_insert_char(editor_config: &mut EditorConfig, c: char) {
+fn insert_char(editor_config: &mut EditorConfig, c: char) {
     if editor_config.folds.contains_key(&editor_config.cursor_y) {
-        editor_set_status_message(editor_config,
+        set_status_message(editor_config,
                                   "Folded lines can't be edited. Ctrl-Space to unfold.")
     } else {
         if editor_config.cursor_y == editor_config.rows.len() {
@@ -536,9 +536,9 @@ fn editor_insert_char(editor_config: &mut EditorConfig, c: char) {
     }
 }
 
-fn editor_insert_newline(editor_config: &mut EditorConfig) {
+fn insert_newline(editor_config: &mut EditorConfig) {
     if editor_config.folds.contains_key(&editor_config.cursor_y) {
-        editor_set_status_message(editor_config,
+        set_status_message(editor_config,
                                   "Folded lines can't be edited. Ctrl-Space to unfold.")
     } else {
         if editor_config.cursor_y < editor_config.rows.len() {
@@ -584,9 +584,9 @@ fn editor_insert_newline(editor_config: &mut EditorConfig) {
     }
 }
 
-fn editor_delete_char(editor_config: &mut EditorConfig) {
+fn delete_char(editor_config: &mut EditorConfig) {
     if editor_config.folds.contains_key(&editor_config.cursor_y) {
-        editor_set_status_message(editor_config,
+        set_status_message(editor_config,
                                   "Folded lines can't be edited. Ctrl-Space to unfold.")
     } else if editor_config.cursor_x > 0 {
         editor_config.rows[editor_config.cursor_y].remove(editor_config.cursor_x - 1);
@@ -616,9 +616,9 @@ fn editor_delete_char(editor_config: &mut EditorConfig) {
 
 /// * file i/o **
 
-fn editor_open(editor_config: &mut EditorConfig, filename: &str) -> io::Result<()> {
+fn open(editor_config: &mut EditorConfig, filename: &str) -> io::Result<()> {
     editor_config.filename = Some(filename.to_string());
-    editor_select_syntax(editor_config);
+    select_syntax(editor_config);
     let file = File::open(filename)?;
     let mut contents = String::new();
     for byte in file.bytes() {
@@ -636,16 +636,16 @@ fn editor_open(editor_config: &mut EditorConfig, filename: &str) -> io::Result<(
     Ok(())
 }
 
-fn editor_save(editor_config: &mut EditorConfig) -> io::Result<()> {
+fn save(editor_config: &mut EditorConfig) -> io::Result<()> {
     if editor_config.filename.is_none() {
-        match editor_prompt(editor_config, "Save as: ", None) {
+        match prompt(editor_config, "Save as: ", None) {
             None => {
-                editor_set_status_message(editor_config, "Save aborted");
+                set_status_message(editor_config, "Save aborted");
                 return Ok(());
             }
             s @ Some(_) => {
                 editor_config.filename = s;
-                editor_select_syntax(editor_config)
+                select_syntax(editor_config)
             }
         }
     }
@@ -664,14 +664,14 @@ fn editor_save(editor_config: &mut EditorConfig) -> io::Result<()> {
     text.push('\n');
     file.write_all(text.as_bytes())?;
     editor_config.modified = false;
-    editor_set_status_message(editor_config,
+    set_status_message(editor_config,
                               &format!("{} bytes written to disk", text.len()));
     Ok(())
 }
 
 /// * find **
 
-fn editor_find_callback(editor_config: &mut EditorConfig, query: &str, key: EditorKey) {
+fn find_callback(editor_config: &mut EditorConfig, query: &str, key: EditorKey) {
     if editor_config.cursor_y < editor_config.rows.len() {
         let index = editor_config.cursor_y;
         update_row(editor_config, index)
@@ -737,15 +737,15 @@ fn editor_find_callback(editor_config: &mut EditorConfig, query: &str, key: Edit
     }
 }
 
-fn editor_find(editor_config: &mut EditorConfig) {
+fn find(editor_config: &mut EditorConfig) {
     let saved_cursor_x = editor_config.cursor_x;
     let saved_cursor_y = editor_config.cursor_y;
     let saved_col_offset = editor_config.col_offset;
     let saved_row_offset = editor_config.row_offset;
 
-    let query = editor_prompt(editor_config,
+    let query = prompt(editor_config,
                               "Search (ESC/Arrows/Enter): ",
-                              Some(&editor_find_callback));
+                              Some(&find_callback));
 
     if query.is_none() {
         editor_config.cursor_x = saved_cursor_x;
@@ -757,7 +757,7 @@ fn editor_find(editor_config: &mut EditorConfig) {
 
 /// * output **
 
-fn editor_scroll(editor_config: &mut EditorConfig) {
+fn scroll(editor_config: &mut EditorConfig) {
     if editor_config.cursor_y < editor_config.row_offset {
         editor_config.row_offset = editor_config.cursor_y
     } else if screen_line_y(editor_config) >= editor_config.screen_rows {
@@ -772,7 +772,7 @@ fn editor_scroll(editor_config: &mut EditorConfig) {
     }
 }
 
-fn editor_draw_rows(editor_config: &EditorConfig, append_buffer: &mut String) {
+fn draw_rows(editor_config: &EditorConfig, append_buffer: &mut String) {
     let tab = &" ".repeat(TAB_STOP);
     let mut screen_y = 0;
     let mut file_row = editor_config.row_offset;
@@ -846,7 +846,7 @@ fn editor_draw_rows(editor_config: &EditorConfig, append_buffer: &mut String) {
     }
 }
 
-fn editor_draw_status_bar(editor_config: &EditorConfig, append_buffer: &mut String) {
+fn draw_status_bar(editor_config: &EditorConfig, append_buffer: &mut String) {
     append_buffer.push_str(INVERT_COLORS);
     let mut name = editor_config
         .filename
@@ -878,7 +878,7 @@ fn editor_draw_status_bar(editor_config: &EditorConfig, append_buffer: &mut Stri
     append_buffer.push_str("\r\n");
 }
 
-fn editor_draw_message_bar(editor_config: &EditorConfig, append_buffer: &mut String) {
+fn draw_message_bar(editor_config: &EditorConfig, append_buffer: &mut String) {
     append_buffer.push_str(CLEAR_RIGHT);
     let mut message = editor_config.status_message.clone();
     message.truncate(editor_config.screen_cols);
@@ -887,15 +887,15 @@ fn editor_draw_message_bar(editor_config: &EditorConfig, append_buffer: &mut Str
     }
 }
 
-fn editor_refresh_screen(editor_config: &mut EditorConfig) {
-    editor_scroll(editor_config);
+fn refresh_screen(editor_config: &mut EditorConfig) {
+    scroll(editor_config);
     let mut append_buffer: String = String::new();
     append_buffer.push_str(HIDE_CURSOR);
     append_buffer.push_str(CURSOR_TOP_RIGHT);
 
-    editor_draw_rows(editor_config, &mut append_buffer);
-    editor_draw_status_bar(editor_config, &mut append_buffer);
-    editor_draw_message_bar(editor_config, &mut append_buffer);
+    draw_rows(editor_config, &mut append_buffer);
+    draw_status_bar(editor_config, &mut append_buffer);
+    draw_message_bar(editor_config, &mut append_buffer);
 
     let cursor_control = format!("\x1b[{};{}H",
                                  screen_line_y(editor_config) + 1,
@@ -908,32 +908,32 @@ fn editor_refresh_screen(editor_config: &mut EditorConfig) {
         .expect("Flushing to stdout should work.");
 }
 
-fn editor_set_status_message(editor_config: &mut EditorConfig, message: &str) {
+fn set_status_message(editor_config: &mut EditorConfig, message: &str) {
     editor_config.status_message = message.to_string();
     editor_config.status_message_time = Instant::now();
 }
 
 /// * input **
 
-fn editor_prompt(editor_config: &mut EditorConfig,
+fn prompt(editor_config: &mut EditorConfig,
                  prompt: &str,
                  callback: Option<&Fn(&mut EditorConfig, &str, EditorKey) -> ()>)
                  -> Option<String> {
     let mut response = String::new();
     loop {
-        editor_set_status_message(editor_config, &format!("{}{}", prompt, response));
-        editor_refresh_screen(editor_config);
+        set_status_message(editor_config, &format!("{}{}", prompt, response));
+        refresh_screen(editor_config);
 
-        let c = editor_read_key();
+        let c = read_key();
         if c == EditorKey::Verbatim('\x1b') {
-            editor_set_status_message(editor_config, "");
+            set_status_message(editor_config, "");
             if let Some(callback) = callback {
                 callback(editor_config, &response, c)
             };
             return None;
         } else if c == EditorKey::Verbatim('\r') {
             if !response.is_empty() {
-                editor_set_status_message(editor_config, "");
+                set_status_message(editor_config, "");
                 if let Some(callback) = callback {
                     callback(editor_config, &response, c)
                 };
@@ -976,7 +976,7 @@ fn screen_line_y(editor_config: &EditorConfig) -> usize {
     screen_y
 }
 
-fn editor_move_cursor(editor_config: &mut EditorConfig, key: EditorKey) {
+fn move_cursor(editor_config: &mut EditorConfig, key: EditorKey) {
     let pre_move_row_len = if editor_config.rows.len() > editor_config.cursor_y {
         editor_config.rows[editor_config.cursor_y].len()
     } else {
@@ -1018,12 +1018,12 @@ fn editor_move_cursor(editor_config: &mut EditorConfig, key: EditorKey) {
         EditorKey::PageUp => {
             editor_config.cursor_y = editor_config.row_offset;
             for _ in 0..editor_config.screen_rows {
-                editor_move_cursor(editor_config, EditorKey::ArrowUp)
+                move_cursor(editor_config, EditorKey::ArrowUp)
             }
         }
         EditorKey::PageDown => {
             for _ in 0..(editor_config.screen_rows * 2 - 1 - screen_line_y(editor_config)) {
-                editor_move_cursor(editor_config, EditorKey::ArrowDown)
+                move_cursor(editor_config, EditorKey::ArrowDown)
             }
         }
         EditorKey::Home => editor_config.cursor_x = 0,
@@ -1041,13 +1041,13 @@ fn editor_move_cursor(editor_config: &mut EditorConfig, key: EditorKey) {
     }
 }
 
-fn editor_process_keypress(editor_config: &mut EditorConfig) -> bool {
-    let c = editor_read_key();
+fn process_keypress(editor_config: &mut EditorConfig) -> bool {
+    let c = read_key();
 
     if c == EditorKey::Verbatim(ctrl_key('q')) {
         if editor_config.modified && editor_config.quit_times > 0 {
             let quit_times = editor_config.quit_times;
-            editor_set_status_message(editor_config,
+            set_status_message(editor_config,
                                       &format!("Warning: File has unsaved changes. Ctrl-S to \
                                                 save, or press Ctrl-Q {} more times to quit.",
                                                quit_times));
@@ -1061,25 +1061,25 @@ fn editor_process_keypress(editor_config: &mut EditorConfig) -> bool {
         match c {
             EditorKey::ArrowUp | EditorKey::ArrowDown | EditorKey::ArrowLeft |
             EditorKey::ArrowRight | EditorKey::PageUp | EditorKey::PageDown | EditorKey::Home |
-            EditorKey::End => editor_move_cursor(editor_config, c),
-            EditorKey::Verbatim(chr) if chr == '\r' => editor_insert_newline(editor_config),
-            EditorKey::Delete => editor_delete_char(editor_config),
+            EditorKey::End => move_cursor(editor_config, c),
+            EditorKey::Verbatim(chr) if chr == '\r' => insert_newline(editor_config),
+            EditorKey::Delete => delete_char(editor_config),
             EditorKey::Verbatim(chr) if chr as usize == 127 || chr == ctrl_key('h') => {
-                editor_delete_char(editor_config)
+                delete_char(editor_config)
             }
             EditorKey::Verbatim(chr) if chr == '\x1b' || chr == ctrl_key('l') => (),
             EditorKey::Verbatim(chr) if chr == ctrl_key('s') => {
-                match editor_save(editor_config) {
+                match save(editor_config) {
                     Ok(()) => (),
                     Err(e) => {
-                        editor_set_status_message(editor_config,
+                        set_status_message(editor_config,
                                                   &format!("Saving failed with {}", e))
                     }
                 }
             }
-            EditorKey::Verbatim(chr) if chr == ctrl_key('f') => editor_find(editor_config),
+            EditorKey::Verbatim(chr) if chr == ctrl_key('f') => find(editor_config),
             EditorKey::Verbatim(chr) if chr == ctrl_key(' ') => toggle_fold(editor_config),
-            EditorKey::Verbatim(chr) => editor_insert_char(editor_config, chr),
+            EditorKey::Verbatim(chr) => insert_char(editor_config, chr),
         };
         editor_config.quit_times = 3;
         true
@@ -1097,19 +1097,19 @@ fn main() {
     let mut editor_config: EditorConfig = EditorConfig::new(orig_termios);
     print!("{}", CLEAR_SCREEN);
     if let Some(filename) = env::args().nth(1) {
-        match editor_open(&mut editor_config, &filename) {
+        match open(&mut editor_config, &filename) {
             Ok(()) => (),
             Err(e) => panic!("Opening file failed with {}", e),
         }
     }
 
-    editor_set_status_message(&mut editor_config,
+    set_status_message(&mut editor_config,
                               "Help: Ctrl-S = save, Ctrl-Q = quit, \
                               Ctrl-F = find, Ctrl-Space = fold.");
     loop {
         check_consistency(&mut editor_config);
-        editor_refresh_screen(&mut editor_config);
-        let to_continue = editor_process_keypress(&mut editor_config);
+        refresh_screen(&mut editor_config);
+        let to_continue = process_keypress(&mut editor_config);
         if !to_continue {
             break;
         }

@@ -15,7 +15,7 @@ use std::collections::HashMap;
 use std::cmp::min;
 
 use std::os::raw::c_int;
-use termios::*;
+use termios::Termios;
 
 /// * utility **
 
@@ -214,6 +214,8 @@ fn check_consistency(editor_config_mut: &mut EditorConfig) {
 
 /// * terminal **
 fn enable_raw_mode() -> io::Result<Termios> {
+    use termios::*;
+
     let orig_termios = Termios::from_fd(STDIN)?;
 
     let mut termios = orig_termios;
@@ -231,7 +233,7 @@ fn enable_raw_mode() -> io::Result<Termios> {
 }
 
 fn restore_orig_mode(editor_config: &EditorConfig) -> io::Result<()> {
-    tcsetattr(STDIN, TCSAFLUSH, &editor_config.orig_termios)
+    termios::tcsetattr(STDIN, termios::TCSAFLUSH, &editor_config.orig_termios)
 }
 
 fn read_key() -> EditorKey {
@@ -296,34 +298,22 @@ fn toggle_fold(editor_config: &mut EditorConfig) {
 fn create_fold(editor_config: &mut EditorConfig) {
     if editor_config.cursor_y < editor_config.rows.len() {
         let fold_depth = whitespace_depth(&editor_config.rows[editor_config.cursor_y]);
-        let mut back_index = editor_config.cursor_y;
-        let start;
-        loop {
-            let depth = whitespace_depth(&editor_config.rows[back_index]);
-            if depth < fold_depth && !editor_config.rows[back_index].is_empty() {
-                start = back_index + 1;
-                break;
-            }
-            if back_index == 0 {
-                start = 0;
-                break;
-            }
-            back_index -= 1;
-        }
-        let mut forward_index = editor_config.cursor_y;
-        let end;
-        loop {
-            let depth = whitespace_depth(&editor_config.rows[forward_index]);
-            if depth < fold_depth && !editor_config.rows[forward_index].is_empty() {
-                end = forward_index - 1;
-                break;
-            }
-            if forward_index == editor_config.rows.len() - 1 {
-                end = editor_config.rows.len() - 1;
-                break;
-            }
-            forward_index += 1;
-        }
+        let start = editor_config
+                        .rows
+                        .iter()
+                        .rev()
+                        .skip(editor_config.rows.len() - editor_config.cursor_y)
+                        .position(|row| whitespace_depth(row) < fold_depth
+                                         && !row.is_empty())
+                        .map_or(0, |reverse_offset| editor_config.cursor_y - reverse_offset);
+        let end = editor_config
+                      .rows
+                      .iter()
+                      .skip(editor_config.cursor_y + 1)
+                      .position(|row| whitespace_depth(row) < fold_depth
+                                      && !row.is_empty())
+                      .map_or(editor_config.rows.len() - 1,
+                              |offset| editor_config.cursor_y + offset);
         editor_config.folds.insert(start, (end, fold_depth));
         editor_config.cursor_y = start;
     }
@@ -338,10 +328,7 @@ fn open_folds(editor_config: &mut EditorConfig) {
 }
 
 fn one_row_forward(editor_config: &EditorConfig, index: usize) -> usize {
-    match editor_config.folds.get(&index) {
-        None => index + 1,
-        Some(&(end, _depth)) => end + 1,
-    }
+    editor_config.folds.get(&index).map_or(index, |&(end, _)| end) + 1
 }
 
 fn one_row_back(editor_config: &EditorConfig, index: usize) -> usize {
@@ -398,7 +385,7 @@ fn string_to_row(s: &str) -> Row {
         .collect()
 }
 
-fn update_row(editor_config: &mut EditorConfig, row_index: usize) {
+fn update_row_highlights(editor_config: &mut EditorConfig, row_index: usize) {
     if let Some(ref syntax) = editor_config.syntax {
         let row = &mut editor_config.rows[row_index];
         let mut index = 0;
@@ -506,7 +493,7 @@ fn select_syntax(editor_config: &mut EditorConfig) {
                     if filename.ends_with(&extension) {
                         editor_config.syntax = Some(entry);
                         for index in 0..editor_config.rows.len() {
-                            update_row(editor_config, index);
+                            update_row_highlights(editor_config, index);
                         }
                         return;
                     }
@@ -533,7 +520,7 @@ fn insert_char(editor_config: &mut EditorConfig, c: char) {
                                                               hl: EditorHighlight::Normal,
                                                           });
         let index = editor_config.cursor_y;
-        update_row(editor_config, index);
+        update_row_highlights(editor_config, index);
         editor_config.cursor_x += 1;
         editor_config.modified = true;
     }
@@ -574,8 +561,8 @@ fn insert_newline(editor_config: &mut EditorConfig) {
             }
 
             let index = editor_config.cursor_y;
-            update_row(editor_config, index);
-            update_row(editor_config, index + 1);
+            update_row_highlights(editor_config, index);
+            update_row_highlights(editor_config, index + 1);
 
             editor_config.cursor_x = depth;
         } else {
@@ -594,7 +581,7 @@ fn delete_char(editor_config: &mut EditorConfig) {
     } else if editor_config.cursor_x > 0 {
         editor_config.rows[editor_config.cursor_y].remove(editor_config.cursor_x - 1);
         let index = editor_config.cursor_y;
-        update_row(editor_config, index);
+        update_row_highlights(editor_config, index);
         editor_config.cursor_x -= 1;
         editor_config.modified = true
     } else if 0 < editor_config.cursor_y && editor_config.cursor_y < editor_config.rows.len() {
@@ -610,7 +597,7 @@ fn delete_char(editor_config: &mut EditorConfig) {
             }
         }
         let index = editor_config.cursor_y - 1;
-        update_row(editor_config, index);
+        update_row_highlights(editor_config, index);
         editor_config.rows.remove(editor_config.cursor_y);
         editor_config.cursor_y -= 1;
         editor_config.modified = true
@@ -630,7 +617,7 @@ fn open(editor_config: &mut EditorConfig, filename: &str) -> io::Result<()> {
             let row = string_to_row(&contents);
             editor_config.rows.push(row);
             let index = editor_config.rows.len() - 1;
-            update_row(editor_config, index);
+            update_row_highlights(editor_config, index);
             contents = String::new();
         } else {
             contents.push(c);
@@ -677,7 +664,7 @@ fn save(editor_config: &mut EditorConfig) -> io::Result<()> {
 fn find_callback(editor_config: &mut EditorConfig, query: &str, key: EditorKey) {
     if editor_config.cursor_y < editor_config.rows.len() {
         let index = editor_config.cursor_y;
-        update_row(editor_config, index)
+        update_row_highlights(editor_config, index)
     }
     if key != EditorKey::Verbatim('\r') && key != EditorKey::Verbatim('\x1b') {
         let match_line = if key == EditorKey::ArrowRight || key == EditorKey::ArrowDown {

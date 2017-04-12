@@ -1,6 +1,6 @@
 #![allow(unknown_lints)]
 #![warn(clippy_pedantic)]
-#![allow(print_stdout, missing_docs_in_private_items, ptr_arg)]
+#![allow(print_stdout, missing_docs_in_private_items, ptr_arg, map_entry)]
 extern crate termios;
 extern crate libc;
 
@@ -430,8 +430,7 @@ fn update_row_highlights(editor_config: &mut EditorConfig, row_index: usize) {
                         for keyword in keywords {
                             let keyword_end = index + keyword.len();
                             if following_string.starts_with(keyword) &&
-                               (keyword_end == row.len() ||
-                                is_separator(row[keyword_end].chr)) {
+                               (keyword_end == row.len() || is_separator(row[keyword_end].chr)) {
                                 while index < keyword_end {
                                     row[index].hl = highlight;
                                     index += 1;
@@ -639,13 +638,16 @@ fn save(editor_config: &mut EditorConfig) -> io::Result<()> {
         .clone()
         .expect("Just made the filename Some().");
     let mut file = File::create(filename)?;
-    let mut text = editor_config
+    let text = editor_config
         .rows
         .iter()
-        .map(row_to_string)
+        .map(|row| {
+                 let mut string = row_to_string(row);
+                 string.push('\n');
+                 string
+             })
         .collect::<Vec<_>>()
-        .join("\n");
-    text.push('\n');
+        .concat();
     file.write_all(text.as_bytes())?;
     editor_config.modified = false;
     set_status_message(editor_config,

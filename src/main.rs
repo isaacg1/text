@@ -684,10 +684,9 @@ fn find_callback(editor_config: &mut EditorConfig, query: &str, key: EditorKey) 
                                             .position(|row| row_to_string(row).contains(query))
                                     })
         } else if key == EditorKey::ArrowLeft || key == EditorKey::ArrowUp {
-            let potential_match =
-                editor_config.rows[..editor_config.cursor_y]
-                    .iter()
-                    .rposition(|row| row_to_string(row).contains(query));
+            let potential_match = editor_config.rows[..editor_config.cursor_y]
+                .iter()
+                .rposition(|row| row_to_string(row).contains(query));
             potential_match.or_else(|| {
                                         editor_config
                                             .rows

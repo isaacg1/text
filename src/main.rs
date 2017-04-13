@@ -193,7 +193,6 @@ fn check_consistency(editor_config_mut: &mut EditorConfig) {
             }
         }
         let mut fold_fold_failure = None;
-        // This could be a bit slow, be warned.
         for (&start1, &(end1, _)) in &editor_config.folds {
             for (&start2, &(end2, _)) in &editor_config.folds {
                 if (start1 <= start2 && start2 <= end1 && end1 <= end2) &&
@@ -387,35 +386,39 @@ fn string_to_row(s: &str) -> Row {
 }
 
 fn update_row_highlights(editor_config: &mut EditorConfig, row_index: usize) {
+    let row = &mut editor_config.rows[row_index];
     if let Some(ref syntax) = editor_config.syntax {
-        let row = &mut editor_config.rows[row_index];
         let mut index = 0;
+        macro_rules! update_cell {
+            ($highlight_expression:expr) => {
+                row[index].hl = $highlight_expression;
+                index += 1;
+            }
+        }
         'outer: while index < row.len() {
-            let prev_is_digit_or_sep = index == 0 || is_separator(row[index - 1].chr) ||
-                                       row[index - 1].hl == EditorHighlight::Number;
-            if syntax.has_digits && row[index].chr.is_digit(10) && prev_is_digit_or_sep {
-                row[index].hl = EditorHighlight::Number
+            let prev_is_sep = index == 0 || is_separator(row[index - 1].chr);
+            if syntax.has_digits && row[index].chr.is_digit(10) && prev_is_sep {
+                while index < row.len() && row[index].chr.is_digit(10) {
+                    update_cell!(EditorHighlight::Number);
+                }
             } else if syntax.quotes.contains(row[index].chr) {
                 let start_quote = row[index].chr;
-                row[index].hl = EditorHighlight::String;
-                index += 1;
+                update_cell!(EditorHighlight::String);
                 while index < row.len() {
-                    row[index].hl = EditorHighlight::String;
                     if row[index].chr == start_quote {
+                        update_cell!(EditorHighlight::String);
                         break;
                     };
                     if row[index].chr == '\\' && index + 1 < row.len() {
-                        index += 1;
-                        row[index].hl = EditorHighlight::String;
+                        update_cell!(EditorHighlight::String);
                     }
-                    index += 1;
+                    update_cell!(EditorHighlight::String);
                 }
             } else if row_to_string(&row[index..].to_vec())
                           .starts_with(&syntax.singleline_comment) {
-                for cell in row.iter_mut().skip(index) {
-                    cell.hl = EditorHighlight::Comment;
+                while index < row.len() {
+                    update_cell!(EditorHighlight::Comment);
                 }
-                break;
             } else {
                 if index == 0 || is_separator(row[index - 1].chr) {
                     let following_string: String = row_to_string(&row[index..].to_vec());
@@ -432,17 +435,19 @@ fn update_row_highlights(editor_config: &mut EditorConfig, row_index: usize) {
                             if following_string.starts_with(keyword) &&
                                (keyword_end == row.len() || is_separator(row[keyword_end].chr)) {
                                 while index < keyword_end {
-                                    row[index].hl = highlight;
-                                    index += 1;
+                                    update_cell!(highlight);
                                 }
                                 continue 'outer;
                             }
                         }
                     }
                 }
-                row[index].hl = EditorHighlight::Normal
-            };
-            index += 1;
+                update_cell!(EditorHighlight::Normal);
+            }
+        }
+    } else {
+        for cell in row.iter_mut() {
+            cell.hl = EditorHighlight::Normal
         }
     }
 }
@@ -460,7 +465,7 @@ fn select_syntax(editor_config: &mut EditorConfig) {
                          singleline_comment: "//".to_string(),
                          keywords: [vec!["extern", "crate", "use", "as", "impl", "fn", "let",
                                          "unsafe", "if", "else", "return", "while", "break",
-                                         "continue", "loop", "match"]
+                                         "continue", "loop", "match", "for"]
                                             .iter()
                                             .map(|x| x.to_string())
                                             .collect::<Vec<_>>(),
@@ -679,13 +684,10 @@ fn find_callback(editor_config: &mut EditorConfig, query: &str, key: EditorKey) 
                                             .position(|row| row_to_string(row).contains(query))
                                     })
         } else if key == EditorKey::ArrowLeft || key == EditorKey::ArrowUp {
-            let potential_match = if editor_config.cursor_y > 1 {
+            let potential_match =
                 editor_config.rows[..editor_config.cursor_y]
                     .iter()
-                    .rposition(|row| row_to_string(row).contains(query))
-            } else {
-                None
-            };
+                    .rposition(|row| row_to_string(row).contains(query));
             potential_match.or_else(|| {
                                         editor_config
                                             .rows
@@ -693,7 +695,7 @@ fn find_callback(editor_config: &mut EditorConfig, query: &str, key: EditorKey) 
                                             .rposition(|row| row_to_string(row).contains(query))
                                     })
         } else {
-            let potential_match = if editor_config.cursor_y < editor_config.rows.len() - 1 {
+            let potential_match = if editor_config.cursor_y < editor_config.rows.len() {
                 editor_config.rows[editor_config.cursor_y..]
                     .iter()
                     .position(|row| row_to_string(row).contains(query))

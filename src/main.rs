@@ -511,12 +511,11 @@ fn select_syntax(editor_config: &mut EditorConfig) {
 
 /// * editor operations **
 
-const DONT_EDIT_FOLDS: &'static str = "Folded lines can't be edited. Ctrl-Space to unfold."
+const DONT_EDIT_FOLDS: &'static str = "Folded lines can't be edited. Ctrl-Space to unfold.";
 
 fn insert_char(editor_config: &mut EditorConfig, c: char) {
     if editor_config.folds.contains_key(&editor_config.cursor_y) {
         set_status_message(editor_config, DONT_EDIT_FOLDS);
-                           
     } else {
         if editor_config.cursor_y == editor_config.rows.len() {
             editor_config.rows.push(Vec::new());

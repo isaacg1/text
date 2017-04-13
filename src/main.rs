@@ -511,10 +511,12 @@ fn select_syntax(editor_config: &mut EditorConfig) {
 
 /// * editor operations **
 
+const DONT_EDIT_FOLDS: &'static str = "Folded lines can't be edited. Ctrl-Space to unfold."
+
 fn insert_char(editor_config: &mut EditorConfig, c: char) {
     if editor_config.folds.contains_key(&editor_config.cursor_y) {
-        set_status_message(editor_config,
-                           "Folded lines can't be edited. Ctrl-Space to unfold.")
+        set_status_message(editor_config, DONT_EDIT_FOLDS);
+                           
     } else {
         if editor_config.cursor_y == editor_config.rows.len() {
             editor_config.rows.push(Vec::new());
@@ -533,8 +535,7 @@ fn insert_char(editor_config: &mut EditorConfig, c: char) {
 
 fn insert_newline(editor_config: &mut EditorConfig) {
     if editor_config.folds.contains_key(&editor_config.cursor_y) {
-        set_status_message(editor_config,
-                           "Folded lines can't be edited. Ctrl-Space to unfold.")
+        set_status_message(editor_config, DONT_EDIT_FOLDS);
     } else {
         if editor_config.cursor_y < editor_config.rows.len() {
             let depth = whitespace_depth(&editor_config.rows[editor_config.cursor_y]);
@@ -574,8 +575,7 @@ fn insert_newline(editor_config: &mut EditorConfig) {
 
 fn delete_char(editor_config: &mut EditorConfig) {
     if editor_config.folds.contains_key(&editor_config.cursor_y) {
-        set_status_message(editor_config,
-                           "Folded lines can't be edited. Ctrl-Space to unfold.")
+        set_status_message(editor_config, DONT_EDIT_FOLDS);
     } else if editor_config.cursor_x > 0 {
         editor_config.rows[editor_config.cursor_y].remove(editor_config.cursor_x - 1);
         let index = editor_config.cursor_y;

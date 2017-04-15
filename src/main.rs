@@ -1,6 +1,6 @@
 #![allow(unknown_lints)]
 #![warn(clippy_pedantic)]
-#![allow(print_stdout, missing_docs_in_private_items, ptr_arg, map_entry)]
+#![allow(print_stdout, missing_docs_in_private_items, ptr_arg)]
 extern crate termios;
 extern crate libc;
 
@@ -51,6 +51,7 @@ const SHOW_CURSOR: &'static str = "\x1b[?25h";
 const CLEAR_RIGHT: &'static str = "\x1b[K";
 const CLEAR_SCREEN: &'static str = "\x1b[2J";
 
+const DONT_EDIT_FOLDS: &'static str = "Folded lines can't be edited. Ctrl-Space to unfold.";
 /// * data **
 
 type Row = Vec<Cell>;
@@ -541,12 +542,12 @@ fn insert_newline(editor_config: &mut EditorConfig) {
             editor_config
                 .rows
                 .insert(editor_config.cursor_y + 1, next_row);
-            for row_index in (editor_config.cursor_y..editor_config.rows.len()).rev() {
-                if let Some((end, depth)) = editor_config.folds.remove(&row_index) {
-                    editor_config
-                        .folds
-                        .insert(row_index + 1, (end + 1, depth));
-                }
+        }
+        for row_index in (editor_config.cursor_y..editor_config.rows.len()).rev() {
+            if let Some((end, depth)) = editor_config.folds.remove(&row_index) {
+                editor_config
+                    .folds
+                    .insert(row_index + 1, (end + 1, depth));
             }
         }
         let index = editor_config.cursor_y;
@@ -561,7 +562,6 @@ fn insert_newline(editor_config: &mut EditorConfig) {
     editor_config.cursor_y += 1;
     editor_config.modified = true;
 }
-// Reviewed through here.
 
 fn delete_char(editor_config: &mut EditorConfig) {
     if editor_config.cursor_x > 0 {
@@ -571,21 +571,25 @@ fn delete_char(editor_config: &mut EditorConfig) {
         editor_config.cursor_x -= 1;
         editor_config.modified = true
     } else if 0 < editor_config.cursor_y && editor_config.cursor_y < editor_config.rows.len() {
-        editor_config.cursor_x = editor_config.rows[editor_config.cursor_y - 1].len();
-        let moved_line = editor_config.rows.remove(editor_config.cursor_y);
-        let line_to_append = &moved_line[whitespace_depth(&moved_line)..];
-        editor_config.rows[editor_config.cursor_y - 1].extend(line_to_append);
-        for row_index in editor_config.cursor_y..editor_config.rows.len() {
-            if let Some((end, depth)) = editor_config.folds.remove(&row_index) {
-                editor_config
-                    .folds
-                    .insert(row_index - 1, (end - 1, depth));
+        if editor_config.folds.values().any(|&(end, _)| end == editor_config.cursor_y-1) {
+            set_status_message(editor_config, DONT_EDIT_FOLDS);
+        } else {
+            editor_config.cursor_x = editor_config.rows[editor_config.cursor_y - 1].len();
+            let moved_line = editor_config.rows.remove(editor_config.cursor_y);
+            let line_to_append = &moved_line[whitespace_depth(&moved_line)..];
+            editor_config.rows[editor_config.cursor_y - 1].extend(line_to_append);
+            for row_index in editor_config.cursor_y..editor_config.rows.len() {
+                if let Some((end, depth)) = editor_config.folds.remove(&row_index) {
+                    editor_config
+                        .folds
+                        .insert(row_index - 1, (end - 1, depth));
+                }
             }
+            editor_config.cursor_y -= 1;
+            let index = editor_config.cursor_y;
+            update_row_highlights(editor_config, index);
+            editor_config.modified = true
         }
-        editor_config.cursor_y -= 1;
-        let index = editor_config.cursor_y;
-        update_row_highlights(editor_config, index);
-        editor_config.modified = true
     }
 }
 
@@ -595,40 +599,40 @@ fn open(editor_config: &mut EditorConfig, filename: &str) -> io::Result<()> {
     editor_config.filename = Some(filename.to_string());
     select_syntax(editor_config);
     let file = File::open(filename)?;
-    let mut contents = String::new();
+    let mut row_buffer = String::new();
     for byte in file.bytes() {
         let c = byte? as char;
         if c == '\n' {
-            let row = string_to_row(&contents);
+            let row = string_to_row(&row_buffer);
             editor_config.rows.push(row);
             let index = editor_config.rows.len() - 1;
             update_row_highlights(editor_config, index);
-            contents = String::new();
+            row_buffer = String::new();
         } else {
-            contents.push(c);
+            row_buffer.push(c);
         }
     }
     Ok(())
 }
 
+// Reviewed through here.
 fn save(editor_config: &mut EditorConfig) -> io::Result<()> {
-    if editor_config.filename.is_none() {
+    let filename = if let Some(ref filename) = editor_config.filename {
+        filename.clone()
+    } else {
         match prompt(editor_config, "Save as: ", None) {
             None => {
                 set_status_message(editor_config, "Save aborted");
                 return Ok(());
             }
-            s @ Some(_) => {
-                editor_config.filename = s;
-                select_syntax(editor_config)
+            Some(filename) => {
+                editor_config.filename = Some(filename.clone());
+                select_syntax(editor_config);
+                filename
             }
         }
-    }
+    };
 
-    let filename = editor_config
-        .filename
-        .clone()
-        .expect("Just made the filename Some().");
     let mut file = File::create(filename)?;
     let text = editor_config
         .rows
@@ -1034,8 +1038,7 @@ fn process_keypress(editor_config: &mut EditorConfig) -> bool {
             // Editing commands
             EditorKey::Delete |
             EditorKey::Verbatim(_) if editor_config.folds.contains_key(&editor_config.cursor_y) => {
-                set_status_message(editor_config,
-                                   "Folded lines can't be edited. Ctrl-Space to unfold.")
+                set_status_message(editor_config, DONT_EDIT_FOLDS);
             }
             EditorKey::Verbatim(chr) if chr == '\r' => insert_newline(editor_config),
             EditorKey::Delete => delete_char(editor_config),

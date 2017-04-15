@@ -618,7 +618,6 @@ fn open(editor_config: &mut EditorConfig, filename: &str) -> io::Result<()> {
     Ok(())
 }
 
-// Reviewed through here.
 fn save(editor_config: &mut EditorConfig) -> io::Result<()> {
     let filename = if let Some(ref filename) = editor_config.filename {
         filename.clone()
@@ -662,46 +661,38 @@ fn find_callback(editor_config: &mut EditorConfig, query: &str, key: EditorKey) 
         update_row_highlights(editor_config, index)
     }
     if key != EditorKey::Verbatim('\r') && key != EditorKey::Verbatim('\x1b') {
-        let match_line = if key == EditorKey::ArrowRight || key == EditorKey::ArrowDown {
-            let potential_match = if editor_config.cursor_y < editor_config.rows.len() - 1 {
-                editor_config.rows[editor_config.cursor_y + 1..]
+        let match_line = {
+            let find_predicate = &|row| row_to_string(row).contains(query);
+            if key == EditorKey::ArrowRight || key == EditorKey::ArrowDown {
+                let potential_match = if editor_config.cursor_y < editor_config.rows.len() - 1 {
+                    editor_config
+                        .rows
+                        .iter()
+                        .skip(editor_config.cursor_y + 1)
+                        .position(find_predicate)
+                        .map(|offset| offset + editor_config.cursor_y + 1)
+                } else {
+                    None
+                };
+                potential_match.or_else(|| editor_config.rows.iter().position(find_predicate))
+            } else if key == EditorKey::ArrowLeft || key == EditorKey::ArrowUp {
+                let potential_match = editor_config.rows[..editor_config.cursor_y]
                     .iter()
-                    .position(|row| row_to_string(row).contains(query))
-                    .map(|offset| offset + editor_config.cursor_y + 1)
+                    .rposition(find_predicate);
+                potential_match.or_else(|| editor_config.rows.iter().rposition(find_predicate))
             } else {
-                None
-            };
-            potential_match.or_else(|| {
-                                        editor_config
-                                            .rows
-                                            .iter()
-                                            .position(|row| row_to_string(row).contains(query))
-                                    })
-        } else if key == EditorKey::ArrowLeft || key == EditorKey::ArrowUp {
-            let potential_match = editor_config.rows[..editor_config.cursor_y]
-                .iter()
-                .rposition(|row| row_to_string(row).contains(query));
-            potential_match.or_else(|| {
-                                        editor_config
-                                            .rows
-                                            .iter()
-                                            .rposition(|row| row_to_string(row).contains(query))
-                                    })
-        } else {
-            let potential_match = if editor_config.cursor_y < editor_config.rows.len() {
-                editor_config.rows[editor_config.cursor_y..]
-                    .iter()
-                    .position(|row| row_to_string(row).contains(query))
-                    .map(|offset| offset + editor_config.cursor_y)
-            } else {
-                None
-            };
-            potential_match.or_else(|| {
-                                        editor_config
-                                            .rows
-                                            .iter()
-                                            .position(|row| row_to_string(row).contains(query))
-                                    })
+                let potential_match = if editor_config.cursor_y < editor_config.rows.len() {
+                    editor_config
+                        .rows
+                        .iter()
+                        .skip(editor_config.cursor_y)
+                        .position(find_predicate)
+                        .map(|offset| offset + editor_config.cursor_y)
+                } else {
+                    None
+                };
+                potential_match.or_else(|| editor_config.rows.iter().position(find_predicate))
+            }
         };
         if let Some(match_line) = match_line {
             let match_index = row_to_string(&editor_config.rows[match_line])
@@ -711,12 +702,16 @@ fn find_callback(editor_config: &mut EditorConfig, query: &str, key: EditorKey) 
             open_folds(editor_config);
             editor_config.cursor_x = match_index;
             editor_config.row_offset = editor_config.rows.len();
-            for cell in editor_config.rows[match_line][match_index..][..query.len()].iter_mut() {
+            for cell in editor_config.rows[match_line]
+                    .iter_mut()
+                    .skip(match_index)
+                    .take(query.len()) {
                 cell.hl = EditorHighlight::Match
             }
         }
     }
 }
+// Reviewed through here.
 
 fn find(editor_config: &mut EditorConfig) {
     let saved_cursor_x = editor_config.cursor_x;

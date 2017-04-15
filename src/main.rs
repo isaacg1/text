@@ -14,6 +14,8 @@ use std::collections::HashMap;
 
 use std::cmp::min;
 
+use std::ascii::AsciiExt;
+
 use std::os::raw::c_int;
 use termios::Termios;
 
@@ -745,7 +747,6 @@ fn scroll(editor_config: &mut EditorConfig) {
     }
 }
 
-// Reviewed through here.
 fn draw_rows(editor_config: &EditorConfig, append_buffer: &mut String) {
     let tab = &" ".repeat(TAB_STOP);
     let mut screen_y = 0;
@@ -779,7 +780,7 @@ fn draw_rows(editor_config: &EditorConfig, append_buffer: &mut String) {
                         append_buffer.push_str(tab);
                     } else if chr.is_control() {
                         append_buffer.push_str(INVERT_COLORS);
-                        let sym = if chr as u8 <= 26 {
+                        let sym = if chr.is_ascii() && chr as u8 <= 26 {
                             (64 + (chr as u8)) as char
                         } else {
                             '?'
@@ -803,9 +804,7 @@ fn draw_rows(editor_config: &EditorConfig, append_buffer: &mut String) {
             };
             if padding > 0 {
                 append_buffer.push('~');
-                for _ in 0..padding - 1 {
-                    append_buffer.push(' ')
-                }
+                append_buffer.push_str(&" ".repeat(padding - 1));
             }
             append_buffer.push_str(&welcome);
             file_row += 1;
@@ -818,6 +817,7 @@ fn draw_rows(editor_config: &EditorConfig, append_buffer: &mut String) {
         screen_y += 1;
     }
 }
+// Reviewed through here.
 
 fn draw_status_bar(editor_config: &EditorConfig, append_buffer: &mut String) {
     append_buffer.push_str(INVERT_COLORS);

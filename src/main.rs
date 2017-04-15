@@ -571,7 +571,10 @@ fn delete_char(editor_config: &mut EditorConfig) {
         editor_config.cursor_x -= 1;
         editor_config.modified = true
     } else if 0 < editor_config.cursor_y && editor_config.cursor_y < editor_config.rows.len() {
-        if editor_config.folds.values().any(|&(end, _)| end == editor_config.cursor_y-1) {
+        if editor_config
+               .folds
+               .values()
+               .any(|&(end, _)| end == editor_config.cursor_y - 1) {
             set_status_message(editor_config, DONT_EDIT_FOLDS);
         } else {
             editor_config.cursor_x = editor_config.rows[editor_config.cursor_y - 1].len();

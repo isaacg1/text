@@ -511,71 +511,60 @@ fn select_syntax(editor_config: &mut EditorConfig) {
 
 /// * editor operations **
 
-const DONT_EDIT_FOLDS: &'static str = "Folded lines can't be edited. Ctrl-Space to unfold.";
-
 fn insert_char(editor_config: &mut EditorConfig, c: char) {
-    if editor_config.folds.contains_key(&editor_config.cursor_y) {
-        set_status_message(editor_config, DONT_EDIT_FOLDS);
-    } else {
-        if editor_config.cursor_y == editor_config.rows.len() {
-            editor_config.rows.push(Vec::new());
-        }
-        editor_config.rows[editor_config.cursor_y].insert(editor_config.cursor_x,
-                                                          Cell {
-                                                              chr: c,
-                                                              hl: EditorHighlight::Normal,
-                                                          });
-        let index = editor_config.cursor_y;
-        update_row_highlights(editor_config, index);
-        editor_config.cursor_x += 1;
-        editor_config.modified = true;
+    if editor_config.cursor_y == editor_config.rows.len() {
+        editor_config.rows.push(Vec::new());
     }
+    editor_config.rows[editor_config.cursor_y].insert(editor_config.cursor_x,
+                                                      Cell {
+                                                          chr: c,
+                                                          hl: EditorHighlight::Normal,
+                                                      });
+    let index = editor_config.cursor_y;
+    update_row_highlights(editor_config, index);
+    editor_config.cursor_x += 1;
+    editor_config.modified = true;
 }
 
 fn insert_newline(editor_config: &mut EditorConfig) {
-    if editor_config.folds.contains_key(&editor_config.cursor_y) {
-        set_status_message(editor_config, DONT_EDIT_FOLDS);
-    } else {
-        if editor_config.cursor_y < editor_config.rows.len() {
-            let depth = whitespace_depth(&editor_config.rows[editor_config.cursor_y]);
-            // If in the whitespace, insert blank line.
-            if depth >= editor_config.cursor_x {
-                editor_config.rows.insert(editor_config.cursor_y, vec![]);
-            } else {
-                let mut next_row = editor_config.rows[editor_config.cursor_y][..depth].to_vec();
+    if editor_config.cursor_y < editor_config.rows.len() {
+        let depth = whitespace_depth(&editor_config.rows[editor_config.cursor_y]);
+        // If in the whitespace, insert blank line.
+        if depth >= editor_config.cursor_x {
+            editor_config.rows.insert(editor_config.cursor_y, vec![]);
+        } else {
+            let mut next_row = editor_config.rows[editor_config.cursor_y][..depth].to_vec();
 
-                let row_end = editor_config.rows[editor_config.cursor_y]
-                    .split_off(editor_config.cursor_x);
-                next_row.extend(row_end);
-                editor_config
-                    .rows
-                    .insert(editor_config.cursor_y + 1, next_row);
-                for row_index in (editor_config.cursor_y..editor_config.rows.len()).rev() {
-                    if let Some((end, depth)) = editor_config.folds.remove(&row_index) {
-                        editor_config
-                            .folds
-                            .insert(row_index + 1, (end + 1, depth));
-                    }
+            let row_end = editor_config.rows[editor_config.cursor_y]
+                .split_off(editor_config.cursor_x);
+            next_row.extend(row_end);
+            editor_config
+                .rows
+                .insert(editor_config.cursor_y + 1, next_row);
+            for row_index in (editor_config.cursor_y..editor_config.rows.len()).rev() {
+                if let Some((end, depth)) = editor_config.folds.remove(&row_index) {
+                    editor_config
+                        .folds
+                        .insert(row_index + 1, (end + 1, depth));
                 }
             }
-            let index = editor_config.cursor_y;
-            update_row_highlights(editor_config, index);
-            update_row_highlights(editor_config, index + 1);
-
-            editor_config.cursor_x = depth;
-        } else {
-            editor_config.rows.push(Vec::new());
-            editor_config.cursor_x = 0;
         }
-        editor_config.cursor_y += 1;
-        editor_config.modified = true;
+        let index = editor_config.cursor_y;
+        update_row_highlights(editor_config, index);
+        update_row_highlights(editor_config, index + 1);
+
+        editor_config.cursor_x = depth;
+    } else {
+        editor_config.rows.push(Vec::new());
+        editor_config.cursor_x = 0;
     }
+    editor_config.cursor_y += 1;
+    editor_config.modified = true;
 }
+// Reviewed through here.
 
 fn delete_char(editor_config: &mut EditorConfig) {
-    if editor_config.folds.contains_key(&editor_config.cursor_y) {
-        set_status_message(editor_config, DONT_EDIT_FOLDS);
-    } else if editor_config.cursor_x > 0 {
+    if editor_config.cursor_x > 0 {
         editor_config.rows[editor_config.cursor_y].remove(editor_config.cursor_x - 1);
         let index = editor_config.cursor_y;
         update_row_highlights(editor_config, index);
@@ -583,9 +572,9 @@ fn delete_char(editor_config: &mut EditorConfig) {
         editor_config.modified = true
     } else if 0 < editor_config.cursor_y && editor_config.cursor_y < editor_config.rows.len() {
         editor_config.cursor_x = editor_config.rows[editor_config.cursor_y - 1].len();
-        let append_line = editor_config.rows[editor_config.cursor_y].clone();
-        let append_line = append_line[whitespace_depth(&append_line)..].to_vec();
-        editor_config.rows[editor_config.cursor_y - 1].extend(&append_line);
+        let moved_line = editor_config.rows.remove(editor_config.cursor_y);
+        let line_to_append = &moved_line[whitespace_depth(&moved_line)..];
+        editor_config.rows[editor_config.cursor_y - 1].extend(line_to_append);
         for row_index in editor_config.cursor_y..editor_config.rows.len() {
             if let Some((end, depth)) = editor_config.folds.remove(&row_index) {
                 editor_config
@@ -593,10 +582,9 @@ fn delete_char(editor_config: &mut EditorConfig) {
                     .insert(row_index - 1, (end - 1, depth));
             }
         }
-        let index = editor_config.cursor_y - 1;
-        update_row_highlights(editor_config, index);
-        editor_config.rows.remove(editor_config.cursor_y);
         editor_config.cursor_y -= 1;
+        let index = editor_config.cursor_y;
+        update_row_highlights(editor_config, index);
         editor_config.modified = true
     }
 }
@@ -1032,11 +1020,6 @@ fn process_keypress(editor_config: &mut EditorConfig) -> bool {
             EditorKey::ArrowUp | EditorKey::ArrowDown | EditorKey::ArrowLeft |
             EditorKey::ArrowRight | EditorKey::PageUp | EditorKey::PageDown | EditorKey::Home |
             EditorKey::End => move_cursor(editor_config, c),
-            EditorKey::Verbatim(chr) if chr == '\r' => insert_newline(editor_config),
-            EditorKey::Delete => delete_char(editor_config),
-            EditorKey::Verbatim(chr) if chr as usize == 127 || chr == ctrl_key('h') => {
-                delete_char(editor_config)
-            }
             EditorKey::Verbatim(chr) if chr == '\x1b' || chr == ctrl_key('l') => (),
             EditorKey::Verbatim(chr) if chr == ctrl_key('s') => {
                 match save(editor_config) {
@@ -1048,6 +1031,17 @@ fn process_keypress(editor_config: &mut EditorConfig) -> bool {
             }
             EditorKey::Verbatim(chr) if chr == ctrl_key('f') => find(editor_config),
             EditorKey::Verbatim(chr) if chr == ctrl_key(' ') => toggle_fold(editor_config),
+            // Editing commands
+            EditorKey::Delete |
+            EditorKey::Verbatim(_) if editor_config.folds.contains_key(&editor_config.cursor_y) => {
+                set_status_message(editor_config,
+                                   "Folded lines can't be edited. Ctrl-Space to unfold.")
+            }
+            EditorKey::Verbatim(chr) if chr == '\r' => insert_newline(editor_config),
+            EditorKey::Delete => delete_char(editor_config),
+            EditorKey::Verbatim(chr) if chr as usize == 127 || chr == ctrl_key('h') => {
+                delete_char(editor_config)
+            }
             EditorKey::Verbatim(chr) => insert_char(editor_config, chr),
         };
         editor_config.quit_times = 3;

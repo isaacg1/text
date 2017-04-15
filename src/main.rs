@@ -711,13 +711,14 @@ fn find_callback(editor_config: &mut EditorConfig, query: &str, key: EditorKey) 
         }
     }
 }
-// Reviewed through here.
 
 fn find(editor_config: &mut EditorConfig) {
+    let saved_editor_config = editor_config;
     let saved_cursor_x = editor_config.cursor_x;
     let saved_cursor_y = editor_config.cursor_y;
     let saved_col_offset = editor_config.col_offset;
     let saved_row_offset = editor_config.row_offset;
+    let saved_folds = editor_config.folds.clone();
 
     let query = prompt(editor_config,
                        "Search (ESC/Arrows/Enter): ",
@@ -728,26 +729,24 @@ fn find(editor_config: &mut EditorConfig) {
         editor_config.cursor_y = saved_cursor_y;
         editor_config.col_offset = saved_col_offset;
         editor_config.row_offset = saved_row_offset;
+        editor_config.folds = saved_folds;
     }
 }
 
 /// * output **
 
 fn scroll(editor_config: &mut EditorConfig) {
-    if editor_config.cursor_y < editor_config.row_offset {
-        editor_config.row_offset = editor_config.cursor_y
-    } else if screen_line_y(editor_config) >= editor_config.screen_rows {
-        while screen_line_y(editor_config) >= editor_config.screen_rows {
-            editor_config.row_offset = one_row_forward(editor_config, editor_config.row_offset);
-        }
+    editor_config.row_offset = min(editor_config.row_offset, editor_config.cursor_y);
+    while screen_line_y(editor_config) >= editor_config.screen_rows {
+        editor_config.row_offset = one_row_forward(editor_config, editor_config.row_offset)
     }
-    if editor_config.cursor_x < editor_config.col_offset {
-        editor_config.col_offset = editor_config.cursor_x
-    } else if editor_config.cursor_x >= editor_config.col_offset + editor_config.screen_cols {
-        editor_config.col_offset = editor_config.cursor_x - editor_config.screen_cols + 1;
+    editor_config.col_offset = min(editor_config.col_offset, editor_config.cursor_x);
+    if editor_config.col_offset + editor_config.screen_cols <= editor_config.cursor_x {
+        editor_config.col_offset = (editor_config.cursor_x + 1) - editor_config.screen_cols;
     }
 }
 
+// Reviewed through here.
 fn draw_rows(editor_config: &EditorConfig, append_buffer: &mut String) {
     let tab = &" ".repeat(TAB_STOP);
     let mut screen_y = 0;
@@ -875,7 +874,7 @@ fn refresh_screen(editor_config: &mut EditorConfig) {
 
     let cursor_control = format!("\x1b[{};{}H",
                                  screen_line_y(editor_config) + 1,
-                                 (render_x(editor_config) - editor_config.col_offset) + 1);
+                                 render_x(editor_config) + 1);
     append_buffer.push_str(&cursor_control);
     append_buffer.push_str(SHOW_CURSOR);
     print!("{}", append_buffer);

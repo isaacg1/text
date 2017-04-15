@@ -713,7 +713,6 @@ fn find_callback(editor_config: &mut EditorConfig, query: &str, key: EditorKey) 
 }
 
 fn find(editor_config: &mut EditorConfig) {
-    let saved_editor_config = editor_config;
     let saved_cursor_x = editor_config.cursor_x;
     let saved_cursor_y = editor_config.cursor_y;
     let saved_col_offset = editor_config.col_offset;
@@ -759,9 +758,8 @@ fn draw_rows(editor_config: &EditorConfig, append_buffer: &mut String) {
             append_buffer.push_str(INVERT_COLORS);
             let fold_msg = format!("{} lines folded.", fold_end - file_row + 1);
             append_buffer.push_str(&fold_msg);
-            for _ in 0..editor_config.screen_cols - fold_msg.len() - fold_white_str.len() {
-                append_buffer.push(' ');
-            }
+            append_buffer.push_str(&" ".repeat(editor_config.screen_cols - fold_msg.len() -
+                                               fold_white_str.len()));
             append_buffer.push_str(REVERT_COLORS);
             file_row = fold_end + 1;
         } else if file_row < editor_config.rows.len() {

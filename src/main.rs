@@ -1,3 +1,4 @@
+// TODO: Review all subtractions for overflow.
 #![allow(unknown_lints)]
 #![warn(clippy_pedantic)]
 #![allow(print_stdout, missing_docs_in_private_items, ptr_arg)]
@@ -817,7 +818,6 @@ fn draw_rows(editor_config: &EditorConfig, append_buffer: &mut String) {
         screen_y += 1;
     }
 }
-// Reviewed through here.
 
 fn draw_status_bar(editor_config: &EditorConfig, append_buffer: &mut String) {
     append_buffer.push_str(INVERT_COLORS);
@@ -842,14 +842,20 @@ fn draw_status_bar(editor_config: &EditorConfig, append_buffer: &mut String) {
                                    filetype,
                                    editor_config.cursor_y + 1,
                                    editor_config.rows.len());
-    right_status.truncate(editor_config.screen_cols - status.len() - 1);
-    for _ in status.len()..(editor_config.screen_cols - right_status.len()) {
-        append_buffer.push(' ');
+    right_status.truncate(if editor_config.screen_cols > status.len() + 1 {
+                              editor_config.screen_cols - status.len() - 1
+                          } else {
+                              0
+                          });
+    if editor_config.screen_cols > status.len() + right_status.len() {
+        append_buffer.push_str(&" ".repeat(editor_config.screen_cols - status.len() -
+                                           right_status.len()));
     }
     append_buffer.push_str(&right_status);
     append_buffer.push_str(REVERT_COLORS);
     append_buffer.push_str("\r\n");
 }
+// Reviewed through here.
 
 fn draw_message_bar(editor_config: &EditorConfig, append_buffer: &mut String) {
     append_buffer.push_str(CLEAR_RIGHT);

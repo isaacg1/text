@@ -739,7 +739,7 @@ fn find(editor_config: &mut EditorConfig) {
 
 fn scroll(editor_config: &mut EditorConfig) {
     editor_config.row_offset = min(editor_config.row_offset, editor_config.cursor_y);
-    while screen_line_y(editor_config) >= editor_config.screen_rows {
+    while screen_y(editor_config) >= editor_config.screen_rows {
         editor_config.row_offset = one_row_forward(editor_config, editor_config.row_offset)
     }
     editor_config.col_offset = min(editor_config.col_offset, editor_config.cursor_x);
@@ -855,13 +855,12 @@ fn draw_status_bar(editor_config: &EditorConfig, append_buffer: &mut String) {
     append_buffer.push_str(REVERT_COLORS);
     append_buffer.push_str("\r\n");
 }
-// Reviewed through here.
 
 fn draw_message_bar(editor_config: &EditorConfig, append_buffer: &mut String) {
     append_buffer.push_str(CLEAR_RIGHT);
-    let mut message = editor_config.status_message.clone();
-    message.truncate(editor_config.screen_cols);
     if editor_config.status_message_time.elapsed().as_secs() < 5 {
+        let mut message = editor_config.status_message.clone();
+        message.truncate(editor_config.screen_cols);
         append_buffer.push_str(&message);
     }
 }
@@ -877,8 +876,8 @@ fn refresh_screen(editor_config: &mut EditorConfig) {
     draw_message_bar(editor_config, &mut append_buffer);
 
     let cursor_control = format!("\x1b[{};{}H",
-                                 screen_line_y(editor_config) + 1,
-                                 render_x(editor_config) + 1);
+                                 screen_y(editor_config) + 1,
+                                 screen_x(editor_config) + 1);
     append_buffer.push_str(&cursor_control);
     append_buffer.push_str(SHOW_CURSOR);
     print!("{}", append_buffer);
@@ -893,6 +892,7 @@ fn set_status_message(editor_config: &mut EditorConfig, message: &str) {
 }
 
 /// * input **
+// Reviewed through here.
 
 fn prompt(editor_config: &mut EditorConfig,
           prompt: &str,
@@ -904,37 +904,44 @@ fn prompt(editor_config: &mut EditorConfig,
         refresh_screen(editor_config);
 
         let c = read_key();
-        if c == EditorKey::Verbatim('\x1b') {
-            set_status_message(editor_config, "");
-            if let Some(callback) = callback {
-                callback(editor_config, &response, c)
-            };
-            return None;
-        } else if c == EditorKey::Verbatim('\r') {
-            if !response.is_empty() {
-                set_status_message(editor_config, "");
+        macro_rules! maybe_callback {
+            () => {
                 if let Some(callback) = callback {
                     callback(editor_config, &response, c)
-                };
-                return Some(response);
-            }
-        } else if c == EditorKey::Delete || c == EditorKey::Verbatim(ctrl_key('h')) ||
-                  c == EditorKey::Verbatim(127 as char) {
-            if !response.is_empty() {
-                response.pop();
-            }
-        } else if let EditorKey::Verbatim(c) = c {
-            if c as usize >= 32 && (c as usize) < 128 {
-                response.push(c);
+                }
             }
         }
-        if let Some(callback) = callback {
-            callback(editor_config, &response, c)
+        match c {
+            EditorKey::Verbatim(chr) if chr == '\x1b' || chr == ctrl_key('q') => {
+                set_status_message(editor_config, "");
+                maybe_callback!();
+                return None;
+            }
+            EditorKey::Verbatim(chr) if chr == '\r' => {
+                if !response.is_empty() {
+                    set_status_message(editor_config, "");
+                    maybe_callback!();
+                    return Some(response);
+                }
+            }
+            EditorKey::Verbatim(chr) if chr == ctrl_key('h') || chr == 127 as char => {
+                if !response.is_empty() {
+                    response.pop();
+                }
+            }
+            EditorKey::Delete => {
+                if !response.is_empty() {
+                    response.pop();
+                }
+            }
+            EditorKey::Verbatim(chr) if chr as usize >= 32 && (chr as usize) < 128 => response.push(chr),
+            _ => (),
         };
+        maybe_callback!();
     }
 }
 
-fn render_x(editor_config: &EditorConfig) -> usize {
+fn screen_x(editor_config: &EditorConfig) -> usize {
     editor_config.cursor_x - editor_config.col_offset +
     if editor_config.cursor_y < editor_config.rows.len() {
         let mut row = editor_config.rows[editor_config.cursor_y].clone();
@@ -945,7 +952,7 @@ fn render_x(editor_config: &EditorConfig) -> usize {
     }
 }
 
-fn screen_line_y(editor_config: &EditorConfig) -> usize {
+fn screen_y(editor_config: &EditorConfig) -> usize {
     let mut file_y = editor_config.row_offset;
     let mut screen_y = 0;
     while file_y < editor_config.cursor_y {
@@ -992,7 +999,7 @@ fn move_cursor(editor_config: &mut EditorConfig, key: EditorKey) {
             }
         }
         EditorKey::PageDown => {
-            for _ in 0..(editor_config.screen_rows * 2 - 1 - screen_line_y(editor_config)) {
+            for _ in 0..(editor_config.screen_rows * 2 - 1 - screen_y(editor_config)) {
                 move_cursor(editor_config, EditorKey::ArrowDown)
             }
         }

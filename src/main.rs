@@ -1,4 +1,3 @@
-// TODO: Review all subtractions for overflow.
 #![allow(unknown_lints)]
 #![warn(clippy_pedantic)]
 #![allow(print_stdout, missing_docs_in_private_items, ptr_arg)]
@@ -95,7 +94,7 @@ impl EditorConfig {
             EditorConfig {
                 orig_termios: orig_termios,
                 filename: None,
-                screen_rows: (ws.ws_row - 2) as usize,
+                screen_rows: (ws.ws_row.saturating_sub(2)) as usize,
                 screen_cols: ws.ws_col as usize,
                 rows: vec![],
                 row_offset: 0,
@@ -305,15 +304,15 @@ fn create_fold(editor_config: &mut EditorConfig) {
             .rows
             .iter()
             .rev()
-            .skip(editor_config.rows.len() - editor_config.cursor_y)
+            .skip(editor_config.rows.len().saturating_sub(editor_config.cursor_y))
             .position(|row| whitespace_depth(row) < fold_depth && !row.is_empty())
-            .map_or(0, |reverse_offset| editor_config.cursor_y - reverse_offset);
+            .map_or(0, |reverse_offset| editor_config.cursor_y.saturating_sub(reverse_offset));
         let end = editor_config
             .rows
             .iter()
             .skip(editor_config.cursor_y + 1)
             .position(|row| whitespace_depth(row) < fold_depth && !row.is_empty())
-            .map_or(editor_config.rows.len() - 1,
+            .map_or(editor_config.rows.len().saturating_sub(1),
                     |offset| editor_config.cursor_y + offset);
         editor_config.folds.insert(start, (end, fold_depth));
         editor_config.cursor_y = start;
@@ -341,10 +340,10 @@ fn one_row_back(editor_config: &EditorConfig, index: usize) -> usize {
             editor_config
                 .folds
                 .iter()
-                .find(|&(_start, &(end, _depth))| end == index - 1) {
+                .find(|&(_start, &(end, _depth))| end == index.saturating_sub(1)) {
             start
         } else {
-            index - 1
+            index.saturating_sub(1)
         }
     } else {
         0

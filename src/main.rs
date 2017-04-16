@@ -743,8 +743,8 @@ fn scroll(editor_config: &mut EditorConfig) {
         editor_config.row_offset = one_row_forward(editor_config, editor_config.row_offset)
     }
     editor_config.col_offset = min(editor_config.col_offset, editor_config.cursor_x);
-    if editor_config.col_offset + editor_config.screen_cols <= editor_config.cursor_x {
-        editor_config.col_offset = (editor_config.cursor_x + 1) - editor_config.screen_cols;
+    while screen_x(editor_config) >= editor_config.screen_cols {
+        editor_config.col_offset += 1;
     }
 }
 
@@ -768,14 +768,15 @@ fn draw_rows(editor_config: &EditorConfig, append_buffer: &mut String) {
             let current_row = &editor_config.rows[file_row];
             if editor_config.col_offset < current_row.len() {
                 let mut current_hl = EditorHighlight::Normal;
-                for &Cell { chr, hl } in
-                    current_row
-                        .iter()
-                        .skip(editor_config.col_offset)
-                        .take(editor_config.screen_cols) {
+                let mut chars_written = 0;
+                for &Cell { chr, hl } in current_row.iter().skip(editor_config.col_offset) {
                     if hl != current_hl {
                         current_hl = hl;
                         append_buffer.push_str(hl.color());
+                    }
+                    chars_written += if chr == '\t' { TAB_STOP } else { 1 };
+                    if chars_written > editor_config.screen_cols {
+                        break;
                     }
                     if chr == '\t' {
                         append_buffer.push_str(tab);
@@ -942,27 +943,19 @@ fn prompt(editor_config: &mut EditorConfig,
     }
 }
 
-// This is wrong, with respect to a line full of tabs. I don't care that much.
 fn screen_x(editor_config: &EditorConfig) -> usize {
-    let x_pos = if editor_config.cursor_x > editor_config.col_offset {
-        editor_config.cursor_x - editor_config.col_offset
-    } else {
-        0
-    };
-    let tabs_len = if editor_config.cursor_y < editor_config.rows.len() {
+    if editor_config.cursor_y < editor_config.rows.len() {
         editor_config.rows[editor_config.cursor_y]
             .iter()
+            .take(editor_config.cursor_x)
             .skip(editor_config.col_offset)
-            .take(x_pos)
-            .filter(|&&c| c.chr == '\t')
-            .count() * (TAB_STOP - 1)
+            .map(|cell| if cell.chr == '\t' { TAB_STOP } else { 1 })
+            .sum()
     } else {
         0
-    };
-    x_pos + tabs_len
+    }
 }
 
-// Reviewed through here.
 fn screen_y(editor_config: &EditorConfig) -> usize {
     let mut file_y = editor_config.row_offset;
     let mut screen_y = 0;
@@ -1004,13 +997,12 @@ fn move_cursor(editor_config: &mut EditorConfig, key: EditorKey) {
             }
         }
         EditorKey::PageUp => {
-            editor_config.cursor_y = editor_config.row_offset;
-            for _ in 0..editor_config.screen_rows {
+            for _ in 0..editor_config.screen_rows - 1 {
                 move_cursor(editor_config, EditorKey::ArrowUp)
             }
         }
         EditorKey::PageDown => {
-            for _ in 0..(editor_config.screen_rows * 2 - 1 - screen_y(editor_config)) {
+            for _ in 0..editor_config.screen_rows - 1 {
                 move_cursor(editor_config, EditorKey::ArrowDown)
             }
         }
@@ -1022,6 +1014,7 @@ fn move_cursor(editor_config: &mut EditorConfig, key: EditorKey) {
     editor_config.cursor_x = min(editor_config.cursor_x, current_row_len(editor_config));
 }
 
+// Return value indicates whether we should continue processing keypresses.
 fn process_keypress(editor_config: &mut EditorConfig) -> bool {
     let c = read_key();
 

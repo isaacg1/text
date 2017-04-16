@@ -341,7 +341,7 @@ fn one_row_back(editor_config: &EditorConfig, index: usize) -> usize {
             editor_config
                 .folds
                 .iter()
-                .find(|&(_start, &(end, _depth))| end == editor_config.cursor_y - 1) {
+                .find(|&(_start, &(end, _depth))| end == index - 1) {
             start
         } else {
             index - 1
@@ -667,7 +667,7 @@ fn find_callback(editor_config: &mut EditorConfig, query: &str, key: EditorKey) 
         let match_line = {
             let find_predicate = &|row| row_to_string(row).contains(query);
             if key == EditorKey::ArrowRight || key == EditorKey::ArrowDown {
-                let potential_match = if editor_config.cursor_y < editor_config.rows.len() - 1 {
+                let potential_match = if editor_config.cursor_y + 1 < editor_config.rows.len() {
                     editor_config
                         .rows
                         .iter()
@@ -754,14 +754,22 @@ fn draw_rows(editor_config: &EditorConfig, append_buffer: &mut String) {
     let mut file_row = editor_config.row_offset;
     while screen_y < editor_config.screen_rows {
         if let Some(&(fold_end, fold_depth)) = editor_config.folds.get(&file_row) {
-            let fold_white = editor_config.rows[file_row][..fold_depth].to_vec();
-            let fold_white_str = row_to_string(&fold_white).replace("\t", tab);
+            let fold_white = &editor_config.rows[file_row][..fold_depth];
+            let fold_white_visible = if editor_config.col_offset < fold_white.len() {
+                fold_white[editor_config.col_offset..].to_vec()
+            } else {
+                vec![]
+            };
+            let mut fold_white_str = row_to_string(&fold_white_visible).replace("\t", tab);
+            let fold_msg = format!("{} lines folded.", fold_end - file_row + 1);
+            fold_white_str.truncate(editor_config.screen_cols.saturating_sub(fold_msg.len()));
             append_buffer.push_str(&fold_white_str);
             append_buffer.push_str(INVERT_COLORS);
-            let fold_msg = format!("{} lines folded.", fold_end - file_row + 1);
             append_buffer.push_str(&fold_msg);
-            append_buffer.push_str(&" ".repeat(editor_config.screen_cols - fold_msg.len() -
-                                               fold_white_str.len()));
+            let padding = editor_config
+                .screen_cols
+                .saturating_sub(fold_msg.len() + fold_white_str.len());
+            append_buffer.push_str(&" ".repeat(padding));
             append_buffer.push_str(REVERT_COLORS);
             file_row = fold_end + 1;
         } else if file_row < editor_config.rows.len() {

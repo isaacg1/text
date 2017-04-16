@@ -851,15 +851,12 @@ fn draw_status_bar(editor_config: &EditorConfig, append_buffer: &mut String) {
                                    filetype,
                                    editor_config.cursor_y + 1,
                                    editor_config.rows.len());
-    right_status.truncate(if editor_config.screen_cols > status.len() + 1 {
-                              editor_config.screen_cols - status.len() - 1
-                          } else {
-                              0
-                          });
-    if editor_config.screen_cols > status.len() + right_status.len() {
-        append_buffer.push_str(&" ".repeat(editor_config.screen_cols - status.len() -
-                                           right_status.len()));
-    }
+    right_status.truncate(editor_config
+                              .screen_cols
+                              .saturating_sub(status.len() + 1));
+    append_buffer.push_str(&" ".repeat(editor_config
+                                           .screen_cols
+                                           .saturating_sub(status.len() + right_status.len())));
     append_buffer.push_str(&right_status);
     append_buffer.push_str(REVERT_COLORS);
     append_buffer.push_str("\r\n");

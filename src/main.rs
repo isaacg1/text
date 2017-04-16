@@ -892,7 +892,6 @@ fn set_status_message(editor_config: &mut EditorConfig, message: &str) {
 }
 
 /// * input **
-// Reviewed through here.
 
 fn prompt(editor_config: &mut EditorConfig,
           prompt: &str,
@@ -934,24 +933,36 @@ fn prompt(editor_config: &mut EditorConfig,
                     response.pop();
                 }
             }
-            EditorKey::Verbatim(chr) if chr as usize >= 32 && (chr as usize) < 128 => response.push(chr),
+            EditorKey::Verbatim(chr) if chr as usize >= 32 && (chr as usize) < 128 => {
+                response.push(chr)
+            }
             _ => (),
         };
         maybe_callback!();
     }
 }
 
+// This is wrong, with respect to a line full of tabs. I don't care that much.
 fn screen_x(editor_config: &EditorConfig) -> usize {
-    editor_config.cursor_x - editor_config.col_offset +
-    if editor_config.cursor_y < editor_config.rows.len() {
-        let mut row = editor_config.rows[editor_config.cursor_y].clone();
-        row.truncate(editor_config.cursor_x);
-        row.iter().filter(|&&c| c.chr == '\t').count() * (TAB_STOP - 1)
+    let x_pos = if editor_config.cursor_x > editor_config.col_offset {
+        editor_config.cursor_x - editor_config.col_offset
     } else {
         0
-    }
+    };
+    let tabs_len = if editor_config.cursor_y < editor_config.rows.len() {
+        editor_config.rows[editor_config.cursor_y]
+            .iter()
+            .skip(editor_config.col_offset)
+            .take(x_pos)
+            .filter(|&&c| c.chr == '\t')
+            .count() * (TAB_STOP - 1)
+    } else {
+        0
+    };
+    x_pos + tabs_len
 }
 
+// Reviewed through here.
 fn screen_y(editor_config: &EditorConfig) -> usize {
     let mut file_y = editor_config.row_offset;
     let mut screen_y = 0;

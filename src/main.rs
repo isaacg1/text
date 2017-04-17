@@ -8,6 +8,9 @@ use std::io::{self, Read, Write};
 use std::fs::File;
 use std::env;
 
+//use std::thread::spawn;
+use std::panic::catch_unwind;
+
 use std::time::Instant;
 
 use std::collections::HashMap;
@@ -66,7 +69,6 @@ struct EditorConfig {
     rows: Vec<Row>,
     row_offset: usize,
     col_offset: usize,
-    orig_termios: Termios,
     filename: Option<String>,
     syntax: Option<EditorSyntax>,
     status_message: String,
@@ -77,7 +79,7 @@ struct EditorConfig {
 }
 
 impl EditorConfig {
-    fn new(orig_termios: Termios) -> EditorConfig {
+    fn new() -> EditorConfig {
         let mut ws = libc::winsize {
             ws_row: 0,
             ws_col: 0,
@@ -92,9 +94,8 @@ impl EditorConfig {
             panic!("Editor config failed.");
         } else {
             EditorConfig {
-                orig_termios: orig_termios,
                 filename: None,
-                screen_rows: (ws.ws_row.saturating_sub(2)) as usize,
+                screen_rows: (ws.ws_row.checked_sub(2).expect("Need at least 2 rows")) as usize,
                 screen_cols: ws.ws_col as usize,
                 rows: vec![],
                 row_offset: 0,
@@ -234,8 +235,8 @@ fn enable_raw_mode() -> io::Result<Termios> {
     Ok(orig_termios)
 }
 
-fn restore_orig_mode(editor_config: &EditorConfig) -> io::Result<()> {
-    termios::tcsetattr(STDIN, termios::TCSAFLUSH, &editor_config.orig_termios)
+fn restore_orig_mode(orig_termios: &Termios) -> io::Result<()> {
+    termios::tcsetattr(STDIN, termios::TCSAFLUSH, orig_termios)
 }
 
 fn read_key() -> EditorKey {
@@ -304,15 +305,15 @@ fn create_fold(editor_config: &mut EditorConfig) {
             .rows
             .iter()
             .rev()
-            .skip(editor_config.rows.len().saturating_sub(editor_config.cursor_y))
+            .skip(editor_config.rows.len() - editor_config.cursor_y)
             .position(|row| whitespace_depth(row) < fold_depth && !row.is_empty())
-            .map_or(0, |reverse_offset| editor_config.cursor_y.saturating_sub(reverse_offset));
+            .map_or(0, |reverse_offset| editor_config.cursor_y - reverse_offset);
         let end = editor_config
             .rows
             .iter()
             .skip(editor_config.cursor_y + 1)
             .position(|row| whitespace_depth(row) < fold_depth && !row.is_empty())
-            .map_or(editor_config.rows.len().saturating_sub(1),
+            .map_or(editor_config.rows.len() - 1,
                     |offset| editor_config.cursor_y + offset);
         editor_config.folds.insert(start, (end, fold_depth));
         editor_config.cursor_y = start;
@@ -335,15 +336,15 @@ fn one_row_forward(editor_config: &EditorConfig, index: usize) -> usize {
 }
 
 fn one_row_back(editor_config: &EditorConfig, index: usize) -> usize {
-    if index > 0 {
+    if let Some(prev_index) = index.checked_sub(1) {
         if let Some((&start, _end_and_depth)) =
             editor_config
                 .folds
                 .iter()
-                .find(|&(_start, &(end, _depth))| end == index.saturating_sub(1)) {
+                .find(|&(_start, &(end, _depth))| end == prev_index) {
             start
         } else {
-            index.saturating_sub(1)
+            prev_index
         }
     } else {
         0
@@ -566,11 +567,11 @@ fn insert_newline(editor_config: &mut EditorConfig) {
 }
 
 fn delete_char(editor_config: &mut EditorConfig) {
-    if editor_config.cursor_x > 0 {
-        editor_config.rows[editor_config.cursor_y].remove(editor_config.cursor_x - 1);
+    if let Some(prev_x) = editor_config.cursor_x.checked_sub(1) {
+        editor_config.rows[editor_config.cursor_y].remove(prev_x);
         let index = editor_config.cursor_y;
         update_row_highlights(editor_config, index);
-        editor_config.cursor_x -= 1;
+        editor_config.cursor_x = prev_x;
         editor_config.modified = true
     } else if 0 < editor_config.cursor_y && editor_config.cursor_y < editor_config.rows.len() {
         if editor_config
@@ -609,13 +610,19 @@ fn open(editor_config: &mut EditorConfig, filename: &str) -> io::Result<()> {
         let c = byte? as char;
         if c == '\n' {
             let row = string_to_row(&row_buffer);
+            let update_index = editor_config.rows.len();
             editor_config.rows.push(row);
-            let index = editor_config.rows.len() - 1;
-            update_row_highlights(editor_config, index);
+            update_row_highlights(editor_config, update_index);
             row_buffer = String::new();
         } else {
             row_buffer.push(c);
         }
+    }
+    if !row_buffer.is_empty() {
+        let row = string_to_row(&row_buffer);
+        let update_index = editor_config.rows.len();
+        editor_config.rows.push(row);
+        update_row_highlights(editor_config, update_index);
     }
     Ok(())
 }
@@ -806,11 +813,7 @@ fn draw_rows(editor_config: &EditorConfig, append_buffer: &mut String) {
             file_row += 1;
         } else if editor_config.rows.is_empty() && screen_y == editor_config.screen_rows / 3 {
             let welcome = format!("Isaac's editor -- version {}", IED_VERSION);
-            let padding = if welcome.len() < editor_config.screen_cols {
-                (editor_config.screen_cols - welcome.len()) / 2
-            } else {
-                0
-            };
+            let padding = editor_config.screen_cols.saturating_sub(welcome.len()) / 2;
             if padding > 0 {
                 append_buffer.push('~');
                 append_buffer.push_str(&" ".repeat(padding - 1));
@@ -984,10 +987,10 @@ fn move_cursor(editor_config: &mut EditorConfig, key: EditorKey) {
             }
         }
         EditorKey::ArrowLeft => {
-            if editor_config.cursor_x > 0 {
-                editor_config.cursor_x -= 1
-            } else if editor_config.cursor_y > 0 {
-                editor_config.cursor_y -= 1;
+            if let Some(prev_x) = editor_config.cursor_x.checked_sub(1) {
+                editor_config.cursor_x = prev_x
+            } else if let Some(prev_y) = editor_config.cursor_y.checked_sub(1) {
+                editor_config.cursor_y = prev_y;
                 editor_config.cursor_x = current_row_len(editor_config);
             }
         }
@@ -1001,12 +1004,12 @@ fn move_cursor(editor_config: &mut EditorConfig, key: EditorKey) {
             }
         }
         EditorKey::PageUp => {
-            for _ in 0..editor_config.screen_rows - 1 {
+            for _ in 0..editor_config.screen_rows.saturating_sub(1) {
                 move_cursor(editor_config, EditorKey::ArrowUp)
             }
         }
         EditorKey::PageDown => {
-            for _ in 0..editor_config.screen_rows - 1 {
+            for _ in 0..editor_config.screen_rows.saturating_sub(1) {
                 move_cursor(editor_config, EditorKey::ArrowDown)
             }
         }
@@ -1070,13 +1073,8 @@ fn process_keypress(editor_config: &mut EditorConfig) -> bool {
 
 /// * init **
 
-fn main() {
-    let orig_termios = match enable_raw_mode() {
-        Ok(t) => t,
-        Err(e) => panic!("Enabling raw mode failed with {}", e),
-    };
-
-    let mut editor_config: EditorConfig = EditorConfig::new(orig_termios);
+fn run() {
+    let mut editor_config: EditorConfig = EditorConfig::new();
     print!("{}", CLEAR_SCREEN);
     if let Some(filename) = env::args().nth(1) {
         match open(&mut editor_config, &filename) {
@@ -1084,7 +1082,6 @@ fn main() {
             Err(e) => panic!("Opening file failed with {}", e),
         }
     }
-
     set_status_message(&mut editor_config,
                        "Help: Ctrl-S = save, Ctrl-Q = quit, \
                        Ctrl-F = find, Ctrl-Space = fold.");
@@ -1096,8 +1093,26 @@ fn main() {
             break;
         }
     }
+}
 
-    match restore_orig_mode(&editor_config) {
+fn main() {
+    let orig_termios = match enable_raw_mode() {
+        Ok(t) => t,
+        Err(e) => panic!("Enabling raw mode failed with {}", e),
+    };
+
+    // Main program is run in a separate thread so that we can recover well from errors.
+    match catch_unwind(run) {
+        Ok(()) => (),
+        Err(_) => {
+            match restore_orig_mode(&orig_termios) {
+                Ok(()) => panic!("Child thread failed."),
+                Err(e) => panic!("Disabling raw mofe failed with {}", e),
+            }
+        }
+    }
+
+    match restore_orig_mode(&orig_termios) {
         Ok(()) => (),
         Err(e) => panic!("Disabling raw mode failed with {}", e),
     };

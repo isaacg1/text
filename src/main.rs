@@ -24,7 +24,7 @@ use termios::Termios;
 
 /// * utility **
 
-const IED_VERSION: &'static str = "0.0.1";
+const IED_VERSION: &'static str = "0.2.0";
 
 const TAB_STOP: usize = 4;
 
@@ -241,18 +241,14 @@ fn restore_orig_mode(orig_termios: &Termios) -> io::Result<()> {
 
 fn read_key() -> EditorKey {
     let mut buffer: [u8; 1] = [0];
-    loop {
-        match io::stdin().read(&mut buffer) {
-            Ok(0) => (),
-            Ok(_) => break,
-            Err(e) => panic!("Read failure: {}", e),
-        };
-    }
+    while io::stdin().read(&mut buffer).expect("Read failure") == 0 {}
     let c = buffer[0] as char;
     if c == '\x1b' {
         let mut escape_buf: [u8; 3] = [0; 3];
-        match io::stdin().read(&mut escape_buf) {
-            Ok(2) | Ok(3) => {
+        match io::stdin()
+                  .read(&mut escape_buf)
+                  .expect("Read failure during escape sequence") {
+            2 | 3 => {
                 if escape_buf[0] as char == '[' {
                     if escape_buf[2] as char == '~' {
                         match escape_buf[1] as char {
@@ -282,8 +278,7 @@ fn read_key() -> EditorKey {
                     }
                 }
             }
-            Ok(_) => return EditorKey::Verbatim('\x1b'),
-            Err(e) => panic!("Read failure during escape: {}", e),
+            _ => return EditorKey::Verbatim('\x1b'),
         };
     };
     EditorKey::Verbatim(c)
@@ -357,7 +352,7 @@ fn is_separator(c: char) -> bool {
     c.is_whitespace() || "&{}'\",.()+-/*=~%<>[];".contains(c)
 }
 
-fn whitespace_depth(row: &Row) -> usize {
+fn whitespace_depth(row: &[Cell]) -> usize {
     row.iter()
         .position(|cell| !cell.chr.is_whitespace())
         .unwrap_or_else(|| row.len())
@@ -706,7 +701,7 @@ fn find_callback(editor_config: &mut EditorConfig, query: &str, key: EditorKey) 
         if let Some(match_line) = match_line {
             let match_index = row_to_string(&editor_config.rows[match_line])
                 .find(query)
-                .expect("We just checked the row contained the string.");
+                .expect("We just checked the row contained the string");
             editor_config.cursor_y = match_line;
             open_folds(editor_config);
             editor_config.cursor_x = match_index;
@@ -891,7 +886,7 @@ fn refresh_screen(editor_config: &mut EditorConfig) {
     print!("{}", append_buffer);
     io::stdout()
         .flush()
-        .expect("Flushing to stdout should work.");
+        .expect("Flushing to stdout should work");
 }
 
 fn set_status_message(editor_config: &mut EditorConfig, message: &str) {
@@ -1077,10 +1072,7 @@ fn run() {
     let mut editor_config: EditorConfig = EditorConfig::new();
     print!("{}", CLEAR_SCREEN);
     if let Some(filename) = env::args().nth(1) {
-        match open(&mut editor_config, &filename) {
-            Ok(()) => (),
-            Err(e) => panic!("Opening file failed with {}", e),
-        }
+        open(&mut editor_config, &filename).expect("Opening file failed")
     }
     set_status_message(&mut editor_config,
                        "Help: Ctrl-S = save, Ctrl-Q = quit, \
@@ -1096,29 +1088,14 @@ fn run() {
 }
 
 fn main() {
-    let orig_termios = match enable_raw_mode() {
-        Ok(t) => t,
-        Err(e) => panic!("Enabling raw mode failed with {}", e),
-    };
+    let orig_termios = enable_raw_mode().expect("Enabling raw mode failed");
 
     // Main program is run in a separate thread so that we can recover well from errors.
-    match catch_unwind(run) {
-        Ok(()) => (),
-        Err(_) => {
-            match restore_orig_mode(&orig_termios) {
-                Ok(()) => panic!("Child thread failed."),
-                Err(e) => panic!("Disabling raw mofe failed with {}", e),
-            }
-        }
-    }
+    let run_result = catch_unwind(run);
+    restore_orig_mode(&orig_termios).expect("Disabling raw mode failed");
+    run_result.expect("Editor loop panicked");
 
-    match restore_orig_mode(&orig_termios) {
-        Ok(()) => (),
-        Err(e) => panic!("Disabling raw mode failed with {}", e),
-    };
     print!("{}", CLEAR_SCREEN);
     print!("{}", CURSOR_TOP_RIGHT);
-    io::stdout()
-        .flush()
-        .expect("I hope flushing to stdout works now.");
+    io::stdout().flush().expect("Flushing stdout failed");
 }

@@ -31,10 +31,6 @@ const TAB_STOP: usize = 4;
 const STDIN: c_int = 1;
 const STDOUT: c_int = 2;
 
-fn ctrl_key(k: char) -> char {
-    (k as u8 & 0x1f) as char
-}
-
 const INVERT_COLORS: &'static str = "\x1b[7m";
 const REVERT_COLORS: &'static str = "\x1b[m";
 
@@ -57,8 +53,8 @@ const CLEAR_RIGHT: &'static str = "\x1b[K";
 const CLEAR_SCREEN: &'static str = "\x1b[2J";
 
 const DONT_EDIT_FOLDS: &'static str = "Folded lines can't be edited. Ctrl-Space to unfold.";
-/// * data **
 
+/// * data **
 type Row = Vec<Cell>;
 
 struct EditorConfig {
@@ -95,7 +91,7 @@ impl EditorConfig {
         } else {
             EditorConfig {
                 filename: None,
-                screen_rows: (ws.ws_row.checked_sub(2).expect("Need at least 2 rows")) as usize,
+                screen_rows: ws.ws_row.checked_sub(2).expect("Need at least 2 rows") as usize,
                 screen_cols: ws.ws_col as usize,
                 rows: vec![],
                 row_offset: 0,
@@ -162,6 +158,10 @@ enum EditorKey {
     Delete,
 }
 
+fn ctrl_key(k: char) -> char {
+    (k as u8 & 0x1f) as char
+}
+
 /// * filetypes **
 struct EditorSyntax {
     filetype: String,
@@ -173,7 +173,6 @@ struct EditorSyntax {
 }
 
 /// * debug **
-
 fn check_consistency(editor_config_mut: &mut EditorConfig) {
     let failure: Option<&str> = {
         let editor_config = &editor_config_mut;
@@ -361,13 +360,11 @@ fn whitespace_depth(row: &[Cell]) -> usize {
 /// * row operations **
 
 fn current_row_len(editor_config: &EditorConfig) -> usize {
-    if editor_config.cursor_y == editor_config.rows.len() {
-        0
-    } else {
-        editor_config.rows[editor_config.cursor_y].len()
-    }
+    editor_config
+        .rows
+        .get(editor_config.cursor_y)
+        .map_or(0, |row| row.len())
 }
-
 
 fn row_to_string(row: &Row) -> String {
     row.iter().map(|&cell| cell.chr).collect::<String>()
@@ -388,7 +385,7 @@ fn update_row_highlights(editor_config: &mut EditorConfig, row_index: usize) {
     let row = &mut editor_config.rows[row_index];
     if let Some(ref syntax) = editor_config.syntax {
         let mut index = 0;
-        macro_rules! update_cell {
+        macro_rules! update_and_advance {
             ($highlight_expression:expr) => {
                 row[index].hl = $highlight_expression;
                 index += 1;
@@ -398,25 +395,25 @@ fn update_row_highlights(editor_config: &mut EditorConfig, row_index: usize) {
             let prev_is_sep = index == 0 || is_separator(row[index - 1].chr);
             if syntax.has_digits && row[index].chr.is_digit(10) && prev_is_sep {
                 while index < row.len() && row[index].chr.is_digit(10) {
-                    update_cell!(EditorHighlight::Number);
+                    update_and_advance!(EditorHighlight::Number);
                 }
             } else if syntax.quotes.contains(row[index].chr) {
                 let start_quote = row[index].chr;
-                update_cell!(EditorHighlight::String);
+                update_and_advance!(EditorHighlight::String);
                 while index < row.len() {
                     if row[index].chr == start_quote {
-                        update_cell!(EditorHighlight::String);
+                        update_and_advance!(EditorHighlight::String);
                         break;
                     };
                     if row[index].chr == '\\' && index + 1 < row.len() {
-                        update_cell!(EditorHighlight::String);
+                        update_and_advance!(EditorHighlight::String);
                     }
-                    update_cell!(EditorHighlight::String);
+                    update_and_advance!(EditorHighlight::String);
                 }
             } else if row_to_string(&row[index..].to_vec())
                           .starts_with(&syntax.singleline_comment) {
                 while index < row.len() {
-                    update_cell!(EditorHighlight::Comment);
+                    update_and_advance!(EditorHighlight::Comment);
                 }
             } else {
                 if index == 0 || is_separator(row[index - 1].chr) {
@@ -434,14 +431,14 @@ fn update_row_highlights(editor_config: &mut EditorConfig, row_index: usize) {
                             if following_string.starts_with(keyword) &&
                                (keyword_end == row.len() || is_separator(row[keyword_end].chr)) {
                                 while index < keyword_end {
-                                    update_cell!(highlight);
+                                    update_and_advance!(highlight);
                                 }
                                 continue 'outer;
                             }
                         }
                     }
                 }
-                update_cell!(EditorHighlight::Normal);
+                update_and_advance!(EditorHighlight::Normal);
             }
         }
     } else {

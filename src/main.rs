@@ -605,7 +605,7 @@ fn open(editor_config: &mut EditorConfig, filename: &str) -> io::Result<()> {
             let update_index = editor_config.rows.len();
             editor_config.rows.push(row);
             update_row_highlights(editor_config, update_index);
-            row_buffer = String::new();
+            row_buffer.truncate(0);
         } else {
             row_buffer.push(c);
         }

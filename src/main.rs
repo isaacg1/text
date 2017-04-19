@@ -243,44 +243,48 @@ fn read_key() -> EditorKey {
     while io::stdin().read(&mut buffer).expect("Read failure") == 0 {}
     let c = buffer[0] as char;
     if c == '\x1b' {
-        let mut escape_buf: [u8; 3] = [0; 3];
-        match io::stdin()
-                  .read(&mut escape_buf)
-                  .expect("Read failure during escape sequence") {
-            2 | 3 => {
-                if escape_buf[0] as char == '[' {
-                    if escape_buf[2] as char == '~' {
+            let mut escape_buf: [u8; 3] = [0; 3];
+            match io::stdin()
+                      .read(&mut escape_buf)
+                      .expect("Read failure during escape sequence") {
+                2 | 3 => {
+                    if escape_buf[0] as char == '[' {
+                        if escape_buf[2] as char == '~' {
+                            match escape_buf[1] as char {
+                                '1' | '7' => Some(EditorKey::Home),
+                                '3' => Some(EditorKey::Delete),
+                                '4' | '8' => Some(EditorKey::End),
+                                '5' => Some(EditorKey::PageUp),
+                                '6' => Some(EditorKey::PageDown),
+                                _ => None,
+                            }
+                        } else {
+                            match escape_buf[1] as char {
+                                'A' => Some(EditorKey::ArrowUp),
+                                'B' => Some(EditorKey::ArrowDown),
+                                'C' => Some(EditorKey::ArrowRight),
+                                'D' => Some(EditorKey::ArrowLeft),
+                                'H' => Some(EditorKey::Home),
+                                'F' => Some(EditorKey::End),
+                                _ => None,
+                            }
+                        }
+                    } else if escape_buf[0] as char == 'O' {
                         match escape_buf[1] as char {
-                            '1' | '7' => return EditorKey::Home,
-                            '3' => return EditorKey::Delete,
-                            '4' | '8' => return EditorKey::End,
-                            '5' => return EditorKey::PageUp,
-                            '6' => return EditorKey::PageDown,
-                            _ => (),
+                            'H' => Some(EditorKey::Home),
+                            'F' => Some(EditorKey::End),
+                            _ => None,
                         }
                     } else {
-                        match escape_buf[1] as char {
-                            'A' => return EditorKey::ArrowUp,
-                            'B' => return EditorKey::ArrowDown,
-                            'C' => return EditorKey::ArrowRight,
-                            'D' => return EditorKey::ArrowLeft,
-                            'H' => return EditorKey::Home,
-                            'F' => return EditorKey::End,
-                            _ => (),
-                        }
-                    }
-                } else if escape_buf[0] as char == 'O' {
-                    match escape_buf[1] as char {
-                        'H' => return EditorKey::Home,
-                        'F' => return EditorKey::End,
-                        _ => (),
+                        None
                     }
                 }
+                _ => None,
             }
-            _ => return EditorKey::Verbatim('\x1b'),
-        };
-    };
-    EditorKey::Verbatim(c)
+        } else {
+            None
+        }
+        .unwrap_or_else(|| EditorKey::Verbatim(c))
 }
 
 /// * folding **

@@ -453,58 +453,58 @@ fn update_row_highlights(editor_config: &mut EditorConfig, row_index: usize) {
 }
 
 fn select_syntax(editor_config: &mut EditorConfig) {
-    let mut new_syntax = None;
-    if let Some(ref filename) = editor_config.filename {
-        let syntax_database =
-            vec![EditorSyntax {
-                     filetype: "rust".to_string(),
-                     extensions: vec![".rs".to_string()],
-                     has_digits: true,
-                     quotes: "\"".to_string(),
-                     singleline_comment: "//".to_string(),
-                     keywords: [vec!["extern", "crate", "use", "as", "impl", "fn", "let",
-                                     "unsafe", "if", "else", "return", "while", "break",
-                                     "continue", "loop", "match", "for"]
+    editor_config.syntax = editor_config
+        .filename
+        .as_ref()
+        .and_then(|filename| {
+            let syntax_database =
+                vec![EditorSyntax {
+                         filetype: "rust".to_string(),
+                         extensions: vec![".rs".to_string()],
+                         has_digits: true,
+                         quotes: "\"".to_string(),
+                         singleline_comment: "//".to_string(),
+                         keywords: [vec!["extern", "crate", "use", "as", "impl", "fn", "let",
+                                         "unsafe", "if", "else", "return", "while", "break",
+                                         "continue", "loop", "match", "for"]
+                                            .iter()
+                                            .map(|x| x.to_string())
+                                            .collect::<Vec<_>>(),
+                                    vec!["const", "static", "struct", "mut", "enum", "ref",
+                                         "type"]
+                                            .iter()
+                                            .map(|x| x.to_string())
+                                            .collect::<Vec<_>>(),
+                                    vec!["true", "false", "self"]
                                         .iter()
                                         .map(|x| x.to_string())
                                         .collect::<Vec<_>>(),
-                                vec!["const", "static", "struct", "mut", "enum", "ref", "type"]
-                                    .iter()
-                                    .map(|x| x.to_string())
-                                    .collect::<Vec<_>>(),
-                                vec!["true", "false", "self"]
-                                    .iter()
-                                    .map(|x| x.to_string())
-                                    .collect::<Vec<_>>(),
-                                vec!["bool", "char", "i8", "i16", "i32", "i64", "isize", "u8",
-                                     "u16", "u32", "u64", "usize", "f32", "f64", "str"]
-                                        .iter()
-                                        .map(|x| x.to_string())
-                                        .collect::<Vec<_>>()],
-                 },
-                 EditorSyntax {
-                     filetype: "c".to_string(),
-                     extensions: vec![".c".to_string(), ".h".to_string(), ".cpp".to_string()],
-                     has_digits: true,
-                     quotes: "\"'".to_string(),
-                     singleline_comment: "//".to_string(),
-                     keywords: [vec![], vec![], vec![], vec![]],
-                 }];
-        for entry in syntax_database {
-            let extensions = entry.extensions.clone();
-            for extension in extensions {
-                if filename.ends_with(&extension) {
-                    new_syntax = Some(entry);
-                    break;
-                }
-            }
-        }
-    }
-    editor_config.syntax = new_syntax;
+                                    vec!["bool", "char", "i8", "i16", "i32", "i64", "isize",
+                                         "u8", "u16", "u32", "u64", "usize", "f32", "f64", "str"]
+                                            .iter()
+                                            .map(|x| x.to_string())
+                                            .collect::<Vec<_>>()],
+                     },
+                     EditorSyntax {
+                         filetype: "c".to_string(),
+                         extensions: vec![".c".to_string(), ".h".to_string(), ".cpp".to_string()],
+                         has_digits: true,
+                         quotes: "\"'".to_string(),
+                         singleline_comment: "//".to_string(),
+                         keywords: [vec![], vec![], vec![], vec![]],
+                     }];
+            syntax_database
+                .into_iter()
+                .find(|entry| {
+                          entry
+                              .extensions
+                              .iter()
+                              .any(|extension| filename.ends_with(extension))
+                      })
+        });
     for index in 0..editor_config.rows.len() {
         update_row_highlights(editor_config, index);
     }
-    return;
 }
 
 

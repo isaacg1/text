@@ -560,6 +560,13 @@ fn insert_newline(editor_config: &mut EditorConfig) {
     editor_config.modified = true;
 }
 
+fn delete_row(editor_config: &mut EditorConfig) {
+    editor_config.rows[editor_config.cursor_y].truncate(editor_config.cursor_x);
+    let index = editor_config.cursor_y;
+    update_row_highlights(editor_config, index);
+    editor_config.modified = true
+}
+
 fn delete_char(editor_config: &mut EditorConfig) {
     if let Some(prev_x) = editor_config.cursor_x.checked_sub(1) {
         editor_config.rows[editor_config.cursor_y].remove(prev_x);
@@ -1075,7 +1082,9 @@ fn process_keypress(editor_config: &mut EditorConfig) -> bool {
             }
             EditorKey::Verbatim(chr) if chr == '\r' => insert_newline(editor_config),
             EditorKey::Delete => {
-                if !(editor_config.folds.contains_key(&(editor_config.cursor_y + 1)) &&
+                if !(editor_config
+                         .folds
+                         .contains_key(&(editor_config.cursor_y + 1)) &&
                      editor_config.cursor_x == editor_config.rows[editor_config.cursor_y].len()) {
                     move_cursor(editor_config, EditorKey::ArrowRight);
                     delete_char(editor_config);
@@ -1084,6 +1093,7 @@ fn process_keypress(editor_config: &mut EditorConfig) -> bool {
             EditorKey::Verbatim(chr) if chr as usize == 127 || chr == ctrl_key('h') => {
                 delete_char(editor_config)
             }
+            EditorKey::Verbatim(chr) if chr == ctrl_key('k') => delete_row(editor_config),
             EditorKey::Verbatim(chr) => insert_char(editor_config, chr),
         };
         editor_config.quit_times = 3;
@@ -1100,8 +1110,8 @@ fn run() {
         open(&mut editor_config, &filename).expect("Opening file failed")
     }
     set_status_message(&mut editor_config,
-                       "Help: Ctrl-S = save, Ctrl-Q = quit, \
-                       Ctrl-F = find, Ctrl-Space = fold, Ctrl-e = refresh.");
+                       "Help: C-s = save, C-q = quit, C-f = find, \
+                       C-Space = fold, C-e = refresh, C-k = delete row.");
     loop {
         check_consistency(&mut editor_config);
         refresh_screen(&mut editor_config);

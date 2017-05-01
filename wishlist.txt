@@ -1,9 +1,9 @@
 Todo:
 Can create files from scratch
 Autocomplete (Maybe too ambitious?)
-Delete line (Ctrl-k)
 Go to line (Ctrl-g, prompt)
 
 Done:
 Refresh file (Ctrl-e)
 Delete key deletes, not backspaces
+Delete line (Ctrl-k)

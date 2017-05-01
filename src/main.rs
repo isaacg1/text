@@ -852,17 +852,22 @@ fn draw_status_bar(editor_config: &EditorConfig, append_buffer: &mut String) {
     } else {
         ""
     };
-    let mut status = format!("{} - {} lines {}", name, editor_config.rows.len(), dirty);
+    let mut status = format!("{} {}", name, dirty);
     status.truncate(editor_config.screen_cols);
     append_buffer.push_str(&status);
     let filetype = match editor_config.syntax {
         None => "no ft".to_string(),
         Some(ref syntax) => syntax.filetype.clone(),
     };
-    let mut right_status = format!("{} | {}/{}",
+    let mut right_status = format!("{} | r: {}/{}, c: {}/{}",
                                    filetype,
                                    editor_config.cursor_y + 1,
-                                   editor_config.rows.len());
+                                   editor_config.rows.len(),
+                                   editor_config.cursor_x + 1,
+                                   editor_config
+                                       .rows
+                                       .get(editor_config.cursor_y)
+                                       .map_or(0, |row| row.len()));
     right_status.truncate(editor_config
                               .screen_cols
                               .saturating_sub(status.len() + 1));

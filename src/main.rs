@@ -291,6 +291,30 @@ fn read_key() -> EditorKey {
 fn toggle_fold(editor_config: &mut EditorConfig) {
     if editor_config.folds.contains_key(&editor_config.cursor_y) {
         editor_config.folds.remove(&editor_config.cursor_y);
+    } else if editor_config.cursor_y < editor_config.rows.len() &&
+              whitespace_depth(&editor_config.rows[editor_config.cursor_y]) == 0 {
+        let mut index = 0;
+        while index < editor_config.rows.len() {
+            if let Some(&(end, _)) = editor_config.folds.get(&index) {
+                index = end + 1;
+            } else if whitespace_depth(&editor_config.rows[index]) > 0 {
+                let depth = whitespace_depth(&editor_config.rows[index]);
+                let end = editor_config
+                    .rows
+                    .iter()
+                    .enumerate()
+                    .skip(index + 1)
+                    .position(|(oth_index, row)| {
+                                  whitespace_depth(row) < depth && !row.is_empty() ||
+                                  editor_config.folds.contains_key(&oth_index)
+                              })
+                    .map_or(editor_config.rows.len() - 1, |offset| index + offset);
+                editor_config.folds.insert(index, (end, depth));
+                index = end + 1;
+            } else {
+                index += 1;
+            }
+        }
     } else {
         create_fold(editor_config);
     }
@@ -672,7 +696,7 @@ fn save(editor_config: &mut EditorConfig) -> io::Result<()> {
     Ok(())
 }
 
-/// * find **
+/// * macro movement **
 
 fn find_callback(editor_config: &mut EditorConfig, query: &str, key: EditorKey) {
     if editor_config.cursor_y < editor_config.rows.len() {
@@ -748,6 +772,23 @@ fn find(editor_config: &mut EditorConfig) {
         editor_config.col_offset = saved_col_offset;
         editor_config.row_offset = saved_row_offset;
         editor_config.folds = saved_folds;
+    }
+}
+
+fn go_to(editor_config: &mut EditorConfig) {
+    if let Some(response) = prompt(editor_config, "Go to line: ", None) {
+        match response.parse::<usize>() {
+            Ok(line) => {
+                if 0 < line && line - 1 <= editor_config.rows.len() {
+                    editor_config.cursor_y = line - 1;
+                    editor_config.cursor_x = 0;
+                } else {
+                    set_status_message(editor_config,
+                                       &format!("Line {} outside of range of file", line));
+                }
+            }
+            Err(_) => set_status_message(editor_config, "Line was not numeric"),
+        }
     }
 }
 
@@ -1079,6 +1120,7 @@ fn process_keypress(editor_config: &mut EditorConfig) -> bool {
                 }
             }
             EditorKey::Verbatim(chr) if chr == ctrl_key('f') => find(editor_config),
+            EditorKey::Verbatim(chr) if chr == ctrl_key('g') => go_to(editor_config),
             EditorKey::Verbatim(chr) if chr == ctrl_key(' ') => toggle_fold(editor_config),
             // Editing commands
             EditorKey::Delete |
@@ -1115,8 +1157,8 @@ fn run() {
         open(&mut editor_config, &filename).expect("Opening file failed")
     }
     set_status_message(&mut editor_config,
-                       "Help: C-s = save, C-q = quit, C-f = find, \
-                       C-Space = fold, C-e = refresh, C-k = delete row.");
+                       "Help: C-s save, C-q quit, C-f find, \
+                       C-' ' fold, C-e refresh, C-k del row, C-g go to.");
     loop {
         check_consistency(&mut editor_config);
         refresh_screen(&mut editor_config);

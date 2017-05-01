@@ -1074,7 +1074,13 @@ fn process_keypress(editor_config: &mut EditorConfig) -> bool {
                 set_status_message(editor_config, DONT_EDIT_FOLDS);
             }
             EditorKey::Verbatim(chr) if chr == '\r' => insert_newline(editor_config),
-            EditorKey::Delete => delete_char(editor_config),
+            EditorKey::Delete => {
+                if !(editor_config.folds.contains_key(&(editor_config.cursor_y + 1)) &&
+                     editor_config.cursor_x == editor_config.rows[editor_config.cursor_y].len()) {
+                    move_cursor(editor_config, EditorKey::ArrowRight);
+                    delete_char(editor_config);
+                }
+            }
             EditorKey::Verbatim(chr) if chr as usize == 127 || chr == ctrl_key('h') => {
                 delete_char(editor_config)
             }

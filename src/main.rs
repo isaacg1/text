@@ -8,7 +8,6 @@ use std::io::{self, Read, Write};
 use std::fs::File;
 use std::env;
 
-//use std::thread::spawn;
 use std::panic::catch_unwind;
 
 use std::time::Instant;
@@ -466,7 +465,7 @@ fn select_syntax(editor_config: &mut EditorConfig) {
                          singleline_comment: "//".to_string(),
                          keywords: [vec!["extern", "crate", "use", "as", "impl", "fn", "let",
                                          "unsafe", "if", "else", "return", "while", "break",
-                                         "continue", "loop", "match", "for"]
+                                         "continue", "loop", "match", "for", "in"]
                                             .iter()
                                             .map(|x| x.to_string())
                                             .collect::<Vec<_>>(),
@@ -599,6 +598,11 @@ fn delete_char(editor_config: &mut EditorConfig) {
 fn open(editor_config: &mut EditorConfig, filename: &str) -> io::Result<()> {
     editor_config.filename = Some(filename.to_string());
     select_syntax(editor_config);
+
+
+    editor_config.rows = vec![];
+    editor_config.folds = HashMap::new();
+
     let file = File::open(filename)?;
     let mut row_buffer = String::new();
     for byte in file.bytes() {
@@ -619,6 +623,10 @@ fn open(editor_config: &mut EditorConfig, filename: &str) -> io::Result<()> {
         editor_config.rows.push(row);
         update_row_highlights(editor_config, update_index);
     }
+
+    editor_config.cursor_y = min(editor_config.cursor_y, editor_config.rows.len());
+    editor_config.cursor_x = 0;
+    scroll(editor_config);
     Ok(())
 }
 
@@ -1039,6 +1047,17 @@ fn process_keypress(editor_config: &mut EditorConfig) -> bool {
             EditorKey::ArrowRight | EditorKey::PageUp | EditorKey::PageDown | EditorKey::Home |
             EditorKey::End => move_cursor(editor_config, c),
             EditorKey::Verbatim(chr) if chr == '\x1b' || chr == ctrl_key('l') => (),
+            EditorKey::Verbatim(chr) if chr == ctrl_key('e') => {
+                if editor_config.modified {
+                    set_status_message(editor_config,
+                                       "File has unsaved changed, and cannot be refreshed. \
+                                        Quit and reopen to discard changes.");
+                } else if let Some(filename) = editor_config.filename.clone() {
+                    open(editor_config, &filename).expect("Refreshing file failed")
+                } else {
+                    set_status_message(editor_config, "No file to refresh")
+                }
+            }
             EditorKey::Verbatim(chr) if chr == ctrl_key('s') => {
                 match save(editor_config) {
                     Ok(()) => (),
@@ -1076,7 +1095,7 @@ fn run() {
     }
     set_status_message(&mut editor_config,
                        "Help: Ctrl-S = save, Ctrl-Q = quit, \
-                       Ctrl-F = find, Ctrl-Space = fold.");
+                       Ctrl-F = find, Ctrl-Space = fold, Ctrl-e = refresh.");
     loop {
         check_consistency(&mut editor_config);
         refresh_screen(&mut editor_config);

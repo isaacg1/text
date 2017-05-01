@@ -1,6 +1,6 @@
 #![allow(unknown_lints)]
 #![warn(clippy_pedantic)]
-#![allow(print_stdout, missing_docs_in_private_items, ptr_arg)]
+#![allow(print_stdout, missing_docs_in_private_items)]
 extern crate termios;
 extern crate libc;
 
@@ -393,7 +393,7 @@ fn current_row_len(editor_config: &EditorConfig) -> usize {
         .map_or(0, |row| row.len())
 }
 
-fn row_to_string(row: &Row) -> String {
+fn row_to_string(row: &[Cell]) -> String {
     row.iter().map(|&cell| cell.chr).collect::<String>()
 }
 
@@ -705,7 +705,7 @@ fn find_callback(editor_config: &mut EditorConfig, query: &str, key: EditorKey) 
     }
     if key != EditorKey::Verbatim('\r') && key != EditorKey::Verbatim('\x1b') {
         let match_line = {
-            let find_predicate = &|row| row_to_string(row).contains(query);
+            let find_predicate = &|row: &Row| row_to_string(row).contains(query);
             if key == EditorKey::ArrowRight || key == EditorKey::ArrowDown {
                 let potential_match = if editor_config.cursor_y + 1 < editor_config.rows.len() {
                     editor_config

@@ -21,6 +21,10 @@ use std::ascii::AsciiExt;
 use std::os::raw::c_int;
 use termios::Termios;
 
+/// * testing **
+
+mod tests;
+
 /// * utility **
 
 const IED_VERSION: &'static str = "0.2.0";
@@ -171,7 +175,8 @@ struct EditorSyntax {
     keywords: [Vec<String>; 4],
 }
 
-/// * debug **
+/// * debug & testing **
+
 fn check_consistency(editor_config_mut: &mut EditorConfig) {
     let failure: Option<&str> = {
         let editor_config = &editor_config_mut;
@@ -487,23 +492,25 @@ fn select_syntax(editor_config: &mut EditorConfig) {
                          has_digits: true,
                          quotes: "\"".to_string(),
                          singleline_comment: "//".to_string(),
-                         keywords: [vec!["extern", "crate", "use", "as", "impl", "fn", "let",
-                                         "unsafe", "if", "else", "return", "while", "break",
-                                         "continue", "loop", "match", "for", "in"]
+                         keywords: [vec!["alignof", "as", "break", "continue", "crate", "else",
+                                         "extern", "fn", "for", "if", "impl", "in", "let",
+                                         "loop", "macro", "match", "mod", "offsetof", "pub",
+                                         "return", "sizeof", "trait", "typeof", "unsafe", "use",
+                                         "where", "while", "yield"]
                                             .iter()
                                             .map(|x| x.to_string())
                                             .collect::<Vec<_>>(),
-                                    vec!["const", "static", "struct", "mut", "enum", "ref",
+                                    vec!["box", "const", "enum", "ref", "static", "struct",
                                          "type"]
                                             .iter()
                                             .map(|x| x.to_string())
                                             .collect::<Vec<_>>(),
-                                    vec!["true", "false", "self"]
+                                    vec!["false", "self", "Self", "super", "true"]
                                         .iter()
                                         .map(|x| x.to_string())
                                         .collect::<Vec<_>>(),
                                     vec!["bool", "char", "i8", "i16", "i32", "i64", "isize",
-                                         "u8", "u16", "u32", "u64", "usize", "f32", "f64", "str"]
+                                         "f32", "f64", "str", "u8", "u16", "u32", "u64", "usize"]
                                             .iter()
                                             .map(|x| x.to_string())
                                             .collect::<Vec<_>>()],

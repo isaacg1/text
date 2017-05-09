@@ -674,7 +674,7 @@ fn all_text(editor_config: &EditorConfig) -> String {
     editor_config
         .rows
         .iter()
-        .map(|row|row_to_string(row.as_slice()))
+        .map(|row| row_to_string(row.as_slice()))
         .collect::<Vec<_>>()
         .join("\n")
 }

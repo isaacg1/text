@@ -1,68 +1,67 @@
 #[allow(dead_code)]
 
-mod tests {
-    use std::collections::HashMap;
-    use std::time::Instant;
 
-    use EditorConfig;
+use std::collections::HashMap;
+use std::time::Instant;
 
-    fn mock_editor() -> EditorConfig {
-        EditorConfig {
-            filename: None,
-            screen_rows: 10,
-            screen_cols: 10,
-            rows: vec![],
-            row_offset: 0,
-            col_offset: 0,
-            cursor_x: 0,
-            cursor_y: 0,
-            status_message: String::new(),
-            status_message_time: Instant::now(),
-            modified: false,
-            quit_times: 3,
-            syntax: None,
-            folds: HashMap::new(),
-        }
+use EditorConfig;
+
+fn mock_editor() -> EditorConfig {
+    EditorConfig {
+        filename: None,
+        screen_rows: 10,
+        screen_cols: 10,
+        rows: vec![],
+        row_offset: 0,
+        col_offset: 0,
+        cursor_x: 0,
+        cursor_y: 0,
+        status_message: String::new(),
+        status_message_time: Instant::now(),
+        modified: false,
+        quit_times: 3,
+        syntax: None,
+        folds: HashMap::new(),
     }
+}
 
-    #[test]
-    fn empty_text() {
-        use all_text;
-        
-        let mock = mock_editor();
-        let text = all_text(&mock);
-        assert_eq!(text, "");
-    }
+#[test]
+fn empty_text() {
+    use all_text;
 
-    #[test]
-    fn line_roundtrip() {
-        use all_text;
-        use load_text;
+    let mock = mock_editor();
+    let text = all_text(&mock);
+    assert_eq!(text, "");
+}
 
-        let mut mock = mock_editor();
-        let line = "Hello, world";
+#[test]
+fn line_roundtrip() {
+    use all_text;
+    use load_text;
 
-        load_text(&mut mock, line);
-        let text = all_text(&mock);
+    let mut mock = mock_editor();
+    let line = "Hello, world";
 
-        assert_eq!(line, text);
-    }
+    load_text(&mut mock, line);
+    let text = all_text(&mock);
 
-    #[test]
-    fn lines_roundtrip() {
-        use all_text;
-        use load_text;
+    assert_eq!(line, text);
+}
 
-        let mut mock = mock_editor();
-        let lines = "This
+#[test]
+fn lines_roundtrip() {
+    use all_text;
+    use load_text;
+
+    let mut mock = mock_editor();
+    let lines = "This
         might
         or might not
         work.
         \n";
 
-        load_text(&mut mock, lines);
-        let text = all_text(&mock);
+    load_text(&mut mock, lines);
+    let text = all_text(&mock);
 
-        assert_eq!(lines, text);
-    }
+    assert_eq!(lines, text);
 }

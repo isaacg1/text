@@ -635,6 +635,7 @@ fn delete_char(editor_config: &mut EditorConfig) {
 /// * file i/o **
 fn open(editor_config: &mut EditorConfig, filename: &str) -> io::Result<()> {
     editor_config.filename = Some(filename.to_string());
+    select_syntax(editor_config);
     let mut file = File::open(filename)?;
     let mut string = String::new();
     file.read_to_string(&mut string)?;

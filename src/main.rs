@@ -132,9 +132,10 @@ enum EditorHighlight {
 }
 
 impl EditorHighlight {
-    fn color(&self) -> &str {
+    fn color(&self) -> String {
+        REVERT_COLORS.to_owned() +
         match *self {
-            EditorHighlight::Normal => REVERT_COLORS,
+            EditorHighlight::Normal => "",
             EditorHighlight::Number => RED,
             EditorHighlight::Match => BACK_BLUE,
             EditorHighlight::String => MAGENTA,
@@ -500,8 +501,8 @@ fn select_syntax(editor_config: &mut EditorConfig) {
                                             .iter()
                                             .map(|x| x.to_string())
                                             .collect::<Vec<_>>(),
-                                    vec!["box", "const", "enum", "ref", "static", "struct",
-                                         "type"]
+                                    vec!["box", "mut", "const", "enum", "ref", "static",
+                                         "struct", "type"]
                                             .iter()
                                             .map(|x| x.to_string())
                                             .collect::<Vec<_>>(),
@@ -632,19 +633,22 @@ fn delete_char(editor_config: &mut EditorConfig) {
 }
 
 /// * file i/o **
-
 fn open(editor_config: &mut EditorConfig, filename: &str) -> io::Result<()> {
     editor_config.filename = Some(filename.to_string());
-    select_syntax(editor_config);
+    let mut file = File::open(filename)?;
+    let mut string = String::new();
+    file.read_to_string(&mut string)?;
+    load_text(editor_config, &string);
+    Ok(())
+}
 
-
+fn load_text(editor_config: &mut EditorConfig, text: &str) {
     editor_config.rows = vec![];
     editor_config.folds = HashMap::new();
 
-    let file = File::open(filename)?;
     let mut row_buffer = String::new();
-    for byte in file.bytes() {
-        let c = byte? as char;
+    for byte in text.bytes() {
+        let c = byte as char;
         if c == '\n' {
             let row = string_to_row(&row_buffer);
             let update_index = editor_config.rows.len();
@@ -655,17 +659,23 @@ fn open(editor_config: &mut EditorConfig, filename: &str) -> io::Result<()> {
             row_buffer.push(c);
         }
     }
-    if !row_buffer.is_empty() {
-        let row = string_to_row(&row_buffer);
-        let update_index = editor_config.rows.len();
-        editor_config.rows.push(row);
-        update_row_highlights(editor_config, update_index);
-    }
+    let row = string_to_row(&row_buffer);
+    let update_index = editor_config.rows.len();
+    editor_config.rows.push(row);
+    update_row_highlights(editor_config, update_index);
 
     editor_config.cursor_y = min(editor_config.cursor_y, editor_config.rows.len());
     editor_config.cursor_x = 0;
     scroll(editor_config);
-    Ok(())
+}
+
+fn all_text(editor_config: &EditorConfig) -> String {
+    editor_config
+        .rows
+        .iter()
+        .map(|row|row_to_string(row.as_slice()))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn save(editor_config: &mut EditorConfig) -> io::Result<()> {
@@ -686,16 +696,7 @@ fn save(editor_config: &mut EditorConfig) -> io::Result<()> {
     };
 
     let mut file = File::create(filename)?;
-    let text = editor_config
-        .rows
-        .iter()
-        .map(|row| {
-                 let mut string = row_to_string(row);
-                 string.push('\n');
-                 string
-             })
-        .collect::<Vec<_>>()
-        .concat();
+    let text = all_text(editor_config);
     file.write_all(text.as_bytes())?;
     editor_config.modified = false;
     set_status_message(editor_config,
@@ -844,7 +845,7 @@ fn draw_rows(editor_config: &EditorConfig, append_buffer: &mut String) {
                 for &Cell { chr, hl } in current_row.iter().skip(editor_config.col_offset) {
                     if hl != current_hl {
                         current_hl = hl;
-                        append_buffer.push_str(hl.color());
+                        append_buffer.push_str(&hl.color());
                     }
                     chars_written += if chr == '\t' { TAB_STOP } else { 1 };
                     if chars_written > editor_config.screen_cols {
@@ -861,7 +862,7 @@ fn draw_rows(editor_config: &EditorConfig, append_buffer: &mut String) {
                         };
                         append_buffer.push(sym);
                         append_buffer.push_str(REVERT_COLORS);
-                        append_buffer.push_str(hl.color());
+                        append_buffer.push_str(&hl.color());
                     } else {
                         append_buffer.push(chr);
                     }

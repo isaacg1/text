@@ -1,6 +1,6 @@
 #![allow(unknown_lints)]
 #![warn(clippy_pedantic)]
-#![allow(print_stdout, missing_docs_in_private_items)]
+#![allow(print_stdout, missing_docs_in_private_items, string_add)]
 extern crate termios;
 extern crate libc;
 

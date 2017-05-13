@@ -1,10 +1,14 @@
-#![allow(dead_code)]
-
+#![allow(dead_code, unused_imports)]
 
 use std::collections::HashMap;
 use std::time::Instant;
 
 use EditorConfig;
+use EditorKey;
+
+use all_text;
+use load_text;
+use process_keypress;
 
 fn mock_editor() -> EditorConfig {
     EditorConfig {
@@ -27,8 +31,6 @@ fn mock_editor() -> EditorConfig {
 
 #[test]
 fn empty_text() {
-    use all_text;
-
     let mock = mock_editor();
     let text = all_text(&mock);
     assert_eq!(text, "");
@@ -36,9 +38,6 @@ fn empty_text() {
 
 #[test]
 fn line_roundtrip() {
-    use all_text;
-    use load_text;
-
     let mut mock = mock_editor();
     let line = "Hello, world";
 
@@ -50,9 +49,6 @@ fn line_roundtrip() {
 
 #[test]
 fn lines_roundtrip() {
-    use all_text;
-    use load_text;
-
     let mut mock = mock_editor();
     let lines = "This
         might
@@ -64,4 +60,31 @@ fn lines_roundtrip() {
     let text = all_text(&mock);
 
     assert_eq!(lines, text);
+}
+
+#[test]
+fn simple_typing() {
+    let typed_text = "Hello, world!";
+
+    let mut mock = mock_editor();
+    for c in typed_text.chars() {
+        process_keypress(&mut mock, EditorKey::Verbatim(c));
+    }
+
+    assert_eq!(typed_text, all_text(&mock));
+}
+
+#[test]
+fn reversed_typing() {
+    let typed_text = "Hello, world!";
+
+    let mut mock = mock_editor();
+    for c in typed_text.chars() {
+        process_keypress(&mut mock, EditorKey::Verbatim(c));
+        process_keypress(&mut mock, EditorKey::ArrowLeft);
+    }
+
+    let reversed_text = typed_text.chars().rev().collect::<String>();
+
+    assert_eq!(reversed_text, all_text(&mock));
 }

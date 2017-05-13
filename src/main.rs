@@ -178,45 +178,49 @@ struct EditorSyntax {
 
 /// * debug & testing **
 
-fn check_consistency(editor_config_mut: &mut EditorConfig) {
-    let failure: Option<&str> = {
-        let editor_config = &editor_config_mut;
-        let cursor_position_failure = if editor_config.cursor_y > editor_config.rows.len() {
-            Some("Cursor y position out of bounds.")
-        } else if editor_config.cursor_x >
-                  current_row_len(editor_config) {
-            Some("Cursor x position is out of bounds")
-        } else {
-            None
-        };
-        let mut fold_failure = None;
-        for (&start, &(end, _)) in &editor_config.folds {
-            if start < editor_config.cursor_y && editor_config.cursor_y <= end {
-                fold_failure = Some("Cursor is inside a fold");
-                break;
-            }
-            if editor_config.rows.len() <= end {
-                fold_failure = Some("Fold goes past end of file");
-                break;
-            }
-        }
-        let mut fold_fold_failure = None;
-        for (&start1, &(end1, _)) in &editor_config.folds {
-            for (&start2, &(end2, _)) in &editor_config.folds {
-                if (start1 <= start2 && start2 <= end1 && end1 <= end2) &&
-                   !(start1 == start2 && end1 == end2) {
-                    fold_fold_failure = Some("Two folds overlap");
-                    break;
-                }
-            }
-        }
-        cursor_position_failure
-            .or(fold_failure)
-            .or(fold_fold_failure)
+fn warn_consistency(editor_config: &mut EditorConfig) {
+    let failure = {
+        check_consistency(editor_config)
     };
     if let Some(message) = failure {
-        set_status_message(editor_config_mut, message);
+        set_status_message(editor_config, message);
     }
+}
+
+
+fn check_consistency(editor_config: &EditorConfig) -> Option<&'static str> {
+    let cursor_position_failure = if editor_config.cursor_y > editor_config.rows.len() {
+        Some("Cursor y position out of bounds.")
+    } else if editor_config.cursor_x >
+              current_row_len(editor_config) {
+        Some("Cursor x position is out of bounds")
+    } else {
+        None
+    };
+    let mut fold_failure = None;
+    for (&start, &(end, _)) in &editor_config.folds {
+        if start < editor_config.cursor_y && editor_config.cursor_y <= end {
+            fold_failure = Some("Cursor is inside a fold");
+            break;
+        }
+        if editor_config.rows.len() <= end {
+            fold_failure = Some("Fold goes past end of file");
+            break;
+        }
+    }
+    let mut fold_fold_failure = None;
+    for (&start1, &(end1, _)) in &editor_config.folds {
+        for (&start2, &(end2, _)) in &editor_config.folds {
+            if (start1 <= start2 && start2 <= end1 && end1 <= end2) &&
+               !(start1 == start2 && end1 == end2) {
+                fold_fold_failure = Some("Two folds overlap");
+                break;
+            }
+        }
+    }
+    cursor_position_failure
+        .or(fold_failure)
+        .or(fold_fold_failure)
 }
 
 /// * terminal **
@@ -1087,9 +1091,7 @@ fn move_cursor(editor_config: &mut EditorConfig, key: EditorKey) {
 }
 
 // Return value indicates whether we should continue processing keypresses.
-fn process_keypress(editor_config: &mut EditorConfig) -> bool {
-    let c = read_key();
-
+fn process_keypress(editor_config: &mut EditorConfig, c: EditorKey) -> bool {
     if c == EditorKey::Verbatim(ctrl_key('q')) {
         if editor_config.modified && editor_config.quit_times > 0 {
             let quit_times = editor_config.quit_times;
@@ -1169,9 +1171,9 @@ fn run() {
                        "Help: C-s save, C-q quit, C-f find, \
                        C-' ' fold, C-e refresh, C-k del row, C-g go to.");
     loop {
-        check_consistency(&mut editor_config);
+        warn_consistency(&mut editor_config);
         refresh_screen(&mut editor_config);
-        let to_continue = process_keypress(&mut editor_config);
+        let to_continue = process_keypress(&mut editor_config, read_key());
         if !to_continue {
             break;
         }

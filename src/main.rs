@@ -6,6 +6,7 @@ extern crate libc;
 
 use std::io::{self, Read, Write};
 use std::fs::File;
+use std::path::Path;
 use std::env;
 
 use std::panic::catch_unwind;
@@ -527,6 +528,31 @@ fn select_syntax(editor_config: &mut EditorConfig) {
                          quotes: "\"'".to_string(),
                          singleline_comment: "//".to_string(),
                          keywords: [vec![], vec![], vec![], vec![]],
+                     },
+                     EditorSyntax {
+                         filetype: "py".to_string(),
+                         extensions: vec![".py".to_string()],
+                         has_digits: true,
+                         quotes: "\"'".to_string(),
+                         singleline_comment: "#".to_string(),
+                         keywords: [
+                             vec!["break", "continue", "def", "for", "if", "import", "in", "return", "while"]
+                                 .iter()
+                                 .map(|x| x.to_string())
+                                 .collect::<Vec<_>>(),
+                             vec!["abs", "input", "int", "len", "range", "print"]
+                                 .iter()
+                                 .map(|x| x.to_string())
+                                 .collect::<Vec<_>>(),
+                             vec!["False", "True"]
+                                 .iter()
+                                 .map(|x| x.to_string())
+                                 .collect::<Vec<_>>(),
+                             vec!["not"]
+                                 .iter()
+                                 .map(|x| x.to_string())
+                                 .collect::<Vec<_>>(),
+                        ],
                      }];
             syntax_database
                 .into_iter()
@@ -640,6 +666,10 @@ fn delete_char(editor_config: &mut EditorConfig) {
 fn open(editor_config: &mut EditorConfig, filename: &str) -> io::Result<()> {
     editor_config.filename = Some(filename.to_string());
     select_syntax(editor_config);
+    
+    if !Path::new(filename).exists() {
+        File::create(filename)?;
+    }
     let mut file = File::open(filename)?;
     let mut string = String::new();
     file.read_to_string(&mut string)?;

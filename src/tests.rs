@@ -10,6 +10,8 @@ use all_text;
 use load_text;
 use process_keypress;
 
+use check_consistency;
+
 fn mock_editor() -> EditorConfig {
     EditorConfig {
         filename: None,
@@ -34,6 +36,7 @@ fn empty_text() {
     let mock = mock_editor();
     let text = all_text(&mock);
     assert_eq!(text, "");
+    assert_eq!(None, check_consistency(&mock))
 }
 
 #[test]
@@ -45,6 +48,7 @@ fn line_roundtrip() {
     let text = all_text(&mock);
 
     assert_eq!(line, text);
+    assert_eq!(None, check_consistency(&mock))
 }
 
 #[test]
@@ -60,6 +64,7 @@ fn lines_roundtrip() {
     let text = all_text(&mock);
 
     assert_eq!(lines, text);
+    assert_eq!(None, check_consistency(&mock))
 }
 
 #[test]
@@ -72,6 +77,7 @@ fn simple_typing() {
     }
 
     assert_eq!(typed_text, all_text(&mock));
+    assert_eq!(None, check_consistency(&mock))
 }
 
 #[test]
@@ -87,4 +93,19 @@ fn reversed_typing() {
     let reversed_text = typed_text.chars().rev().collect::<String>();
 
     assert_eq!(reversed_text, all_text(&mock));
+    assert_eq!(None, check_consistency(&mock))
+}
+
+#[test]
+fn moving_around() {
+    let mut mock = mock_editor();
+
+    process_keypress(&mut mock, EditorKey::ArrowUp);
+    assert_eq!(None, check_consistency(&mock));
+    process_keypress(&mut mock, EditorKey::ArrowLeft);
+    assert_eq!(None, check_consistency(&mock));
+    process_keypress(&mut mock, EditorKey::ArrowDown);
+    assert_eq!(None, check_consistency(&mock));
+    process_keypress(&mut mock, EditorKey::ArrowRight);
+    assert_eq!(None, check_consistency(&mock));
 }

@@ -5,10 +5,12 @@ use std::time::Instant;
 
 use EditorConfig;
 use EditorKey;
+use EditorHighlight;
 
 use all_text;
 use load_text;
 use process_keypress;
+use select_syntax;
 
 use check_consistency;
 
@@ -97,6 +99,27 @@ fn reversed_typing() {
 }
 
 #[test]
+fn newline_typing() {
+    use whitespace_depth;
+    let text = "Hello, world!";
+
+    let mut mock = mock_editor();
+    load_text(&mut mock, text);
+
+    for _ in 0..3 {
+        for _ in 0..6 {
+            process_keypress(&mut mock, EditorKey::ArrowRight);
+        }
+        process_keypress(&mut mock, EditorKey::Verbatim('\r'));
+    }
+    assert_eq!(all_text(&mock),
+               "Hello,
+ world
+ !
+");
+}
+
+#[test]
 fn moving_around() {
     let mut mock = mock_editor();
 
@@ -108,4 +131,49 @@ fn moving_around() {
     assert_eq!(None, check_consistency(&mock));
     process_keypress(&mut mock, EditorKey::ArrowRight);
     assert_eq!(None, check_consistency(&mock));
+}
+
+#[test]
+fn hello_world_highlight() {
+    let text = "fn main() {
+    println!(\"Hello, world!\\\"\");
+    123 // 123
+}";
+    let mut mock = mock_editor();
+    mock.filename = Some("main.rs".to_string());
+    select_syntax(&mut mock);
+
+    load_text(&mut mock, text);
+
+    assert_eq!(mock.rows.len(), 4);
+    assert!(mock.rows[0][..2]
+                .iter()
+                .all(|cell| cell.hl == EditorHighlight::Keyword1));
+    assert!(mock.rows[0][2..]
+                .iter()
+                .all(|cell| cell.hl == EditorHighlight::Normal));
+    assert!(mock.rows[1][..13]
+                .iter()
+                .all(|cell| cell.hl == EditorHighlight::Normal));
+    assert!(mock.rows[1][13..30]
+                .iter()
+                .all(|cell| cell.hl == EditorHighlight::String));
+    assert!(mock.rows[1][30..]
+                .iter()
+                .all(|cell| cell.hl == EditorHighlight::Normal));
+    assert!(mock.rows[2][..4]
+                .iter()
+                .all(|cell| cell.hl == EditorHighlight::Normal));
+    assert!(mock.rows[2][4..7]
+                .iter()
+                .all(|cell| cell.hl == EditorHighlight::Number));
+    assert!(mock.rows[2][7..8]
+                .iter()
+                .all(|cell| cell.hl == EditorHighlight::Normal));
+    assert!(mock.rows[2][8..]
+                .iter()
+                .all(|cell| cell.hl == EditorHighlight::Comment));
+    assert!(mock.rows[3]
+                .iter()
+                .all(|cell| cell.hl == EditorHighlight::Normal));
 }

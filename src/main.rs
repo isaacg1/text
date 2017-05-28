@@ -535,24 +535,23 @@ fn select_syntax(editor_config: &mut EditorConfig) {
                          has_digits: true,
                          quotes: "\"'".to_string(),
                          singleline_comment: "#".to_string(),
-                         keywords: [
-                             vec!["break", "continue", "def", "for", "if", "import", "in", "return", "while"]
-                                 .iter()
-                                 .map(|x| x.to_string())
-                                 .collect::<Vec<_>>(),
-                             vec!["abs", "input", "int", "len", "range", "print"]
-                                 .iter()
-                                 .map(|x| x.to_string())
-                                 .collect::<Vec<_>>(),
-                             vec!["False", "True"]
-                                 .iter()
-                                 .map(|x| x.to_string())
-                                 .collect::<Vec<_>>(),
-                             vec!["not"]
-                                 .iter()
-                                 .map(|x| x.to_string())
-                                 .collect::<Vec<_>>(),
-                        ],
+                         keywords: [vec!["break", "continue", "def", "for", "if", "import", "in",
+                                         "return", "while"]
+                                            .iter()
+                                            .map(|x| x.to_string())
+                                            .collect::<Vec<_>>(),
+                                    vec!["abs", "input", "int", "len", "range", "print"]
+                                        .iter()
+                                        .map(|x| x.to_string())
+                                        .collect::<Vec<_>>(),
+                                    vec!["False", "True"]
+                                        .iter()
+                                        .map(|x| x.to_string())
+                                        .collect::<Vec<_>>(),
+                                    vec!["not"]
+                                        .iter()
+                                        .map(|x| x.to_string())
+                                        .collect::<Vec<_>>()],
                      }];
             syntax_database
                 .into_iter()
@@ -666,7 +665,7 @@ fn delete_char(editor_config: &mut EditorConfig) {
 fn open(editor_config: &mut EditorConfig, filename: &str) -> io::Result<()> {
     editor_config.filename = Some(filename.to_string());
     select_syntax(editor_config);
-    
+
     if !Path::new(filename).exists() {
         File::create(filename)?;
     }

@@ -535,15 +535,16 @@ fn select_syntax(editor_config: &mut EditorConfig) {
                          has_digits: true,
                          quotes: "\"'".to_string(),
                          singleline_comment: "#".to_string(),
-                         keywords: [vec!["break", "continue", "def", "elif", "else", "for", "from", "if",
-                                         "import", "in", "return", "while"]
+                         keywords: [vec!["break", "continue", "def", "elif", "else", "for",
+                                         "from", "if", "import", "in", "return", "while"]
                                             .iter()
                                             .map(|x| x.to_string())
                                             .collect::<Vec<_>>(),
-                                    vec!["any", "abs", "input", "int", "len", "range", "print", "zip"]
-                                        .iter()
-                                        .map(|x| x.to_string())
-                                        .collect::<Vec<_>>(),
+                                    vec!["any", "abs", "input", "int", "len", "range", "print",
+                                         "zip"]
+                                            .iter()
+                                            .map(|x| x.to_string())
+                                            .collect::<Vec<_>>(),
                                     vec!["False", "True"]
                                         .iter()
                                         .map(|x| x.to_string())
@@ -622,10 +623,16 @@ fn insert_newline(editor_config: &mut EditorConfig) {
 }
 
 fn delete_row(editor_config: &mut EditorConfig) {
-    editor_config.rows[editor_config.cursor_y].truncate(editor_config.cursor_x);
-    let index = editor_config.cursor_y;
-    update_row_highlights(editor_config, index);
-    editor_config.modified = true
+    if editor_config.cursor_y < editor_config.rows.len() {
+        if editor_config.cursor_x == 0 {
+            editor_config.rows.remove(editor_config.cursor_y);
+        } else {
+            editor_config.rows[editor_config.cursor_y].truncate(editor_config.cursor_x);
+            let index = editor_config.cursor_y;
+            update_row_highlights(editor_config, index);
+        }
+        editor_config.modified = true
+    }
 }
 
 fn delete_char(editor_config: &mut EditorConfig) {

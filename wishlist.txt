@@ -2,8 +2,7 @@ Todo:
 Autocomplete (Maybe too ambitious?)
 Cut, Copy, Paste
 Faster Paste of long lines
-Ctrl+k deletes line + newlineif used from beginning of line.
-
+Undo (Maybe too ambitious?)
 
 Done:
 Refresh file (Ctrl-e)
@@ -12,3 +11,4 @@ Delete line (Ctrl-k)
 Go to line (Ctrl-g, prompt)
 Fold the world
 Can create files from scratch
+Ctrl+k deletes line + newlineif used from beginning of line.

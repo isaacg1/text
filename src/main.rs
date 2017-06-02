@@ -386,7 +386,7 @@ fn one_row_back(editor_config: &EditorConfig, index: usize) -> usize {
 /// * syntax highlighting **
 
 fn is_separator(c: char) -> bool {
-    c.is_whitespace() || "&{}'\",.()+-/*=~%<>[];".contains(c)
+    c.is_whitespace() || "&{}'\",.()+-/*=~%<>[];:".contains(c)
 }
 
 fn whitespace_depth(row: &[Cell]) -> usize {
@@ -535,12 +535,12 @@ fn select_syntax(editor_config: &mut EditorConfig) {
                          has_digits: true,
                          quotes: "\"'".to_string(),
                          singleline_comment: "#".to_string(),
-                         keywords: [vec!["break", "continue", "def", "for", "if", "import", "in",
-                                         "return", "while"]
+                         keywords: [vec!["break", "continue", "def", "elif", "else", "for", "from", "if",
+                                         "import", "in", "return", "while"]
                                             .iter()
                                             .map(|x| x.to_string())
                                             .collect::<Vec<_>>(),
-                                    vec!["abs", "input", "int", "len", "range", "print"]
+                                    vec!["any", "abs", "input", "int", "len", "range", "print", "zip"]
                                         .iter()
                                         .map(|x| x.to_string())
                                         .collect::<Vec<_>>(),
@@ -548,7 +548,7 @@ fn select_syntax(editor_config: &mut EditorConfig) {
                                         .iter()
                                         .map(|x| x.to_string())
                                         .collect::<Vec<_>>(),
-                                    vec!["not"]
+                                    vec!["and", "not", "or"]
                                         .iter()
                                         .map(|x| x.to_string())
                                         .collect::<Vec<_>>()],

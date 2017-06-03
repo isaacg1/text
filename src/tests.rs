@@ -8,10 +8,7 @@ use EditorKey;
 use ctrl_key;
 use EditorHighlight;
 
-use all_text;
-use load_text;
 use process_keypress;
-use select_syntax;
 use refresh_screen;
 
 fn mock_editor() -> EditorConfig {
@@ -36,7 +33,7 @@ fn mock_editor() -> EditorConfig {
 #[test]
 fn empty_text() {
     let mock = mock_editor();
-    let text = all_text(&mock);
+    let text = mock.all_text();
     assert_eq!(text, "");
     assert_eq!(None, mock.check_consistency())
 }
@@ -46,8 +43,8 @@ fn line_roundtrip() {
     let mut mock = mock_editor();
     let line = "Hello, world";
 
-    load_text(&mut mock, line);
-    let text = all_text(&mock);
+    mock.load_text(line);
+    let text = mock.all_text();
 
     assert_eq!(line, text);
     assert_eq!(None, mock.check_consistency())
@@ -62,8 +59,8 @@ fn lines_roundtrip() {
         work.
         \n";
 
-    load_text(&mut mock, lines);
-    let text = all_text(&mock);
+    mock.load_text(lines);
+    let text = mock.all_text();
 
     assert_eq!(lines, text);
     assert_eq!(None, mock.check_consistency())
@@ -78,7 +75,7 @@ fn simple_typing() {
         process_keypress(&mut mock, EditorKey::Verbatim(c));
     }
 
-    assert_eq!(typed_text, all_text(&mock));
+    assert_eq!(typed_text, mock.all_text());
     assert_eq!(None, mock.check_consistency())
 }
 
@@ -94,7 +91,7 @@ fn reversed_typing() {
 
     let reversed_text = typed_text.chars().rev().collect::<String>();
 
-    assert_eq!(reversed_text, all_text(&mock));
+    assert_eq!(reversed_text, mock.all_text());
     assert_eq!(None, mock.check_consistency())
 }
 
@@ -104,7 +101,7 @@ fn newline_typing() {
     let text = "Hello, world!";
 
     let mut mock = mock_editor();
-    load_text(&mut mock, text);
+    mock.load_text(text);
 
     for _ in 0..3 {
         for _ in 0..6 {
@@ -112,7 +109,7 @@ fn newline_typing() {
         }
         process_keypress(&mut mock, EditorKey::Verbatim('\r'));
     }
-    assert_eq!(all_text(&mock),
+    assert_eq!(mock.all_text(),
                "Hello,
  world
  !
@@ -141,9 +138,9 @@ fn hello_world_highlight() {
 }";
     let mut mock = mock_editor();
     mock.filename = Some("main.rs".to_string());
-    select_syntax(&mut mock);
+    mock.select_syntax();
 
-    load_text(&mut mock, text);
+    mock.load_text(text);
 
     assert_eq!(mock.rows.len(), 4);
     assert!(mock.rows[0][..2]
@@ -185,7 +182,7 @@ b
  c";
 
     let mut mock = mock_editor();
-    load_text(&mut mock, text);
+    mock.load_text(text);
 
     assert_eq!(mock.rows.len(), 3);
 
@@ -209,14 +206,14 @@ fn fold_last_row_delete_row() {
  b";
 
     let mut mock = mock_editor();
-    load_text(&mut mock, text);
+    mock.load_text(text);
 
     process_keypress(&mut mock, EditorKey::ArrowDown);
     process_keypress(&mut mock, EditorKey::Verbatim(ctrl_key(' ')));
     process_keypress(&mut mock, EditorKey::ArrowUp);
     process_keypress(&mut mock, EditorKey::Verbatim(ctrl_key('k')));
     refresh_screen(&mut mock);
-    assert_eq!(" b", all_text(&mock));
+    assert_eq!(" b", mock.all_text());
 }
 
 #[test]
@@ -225,7 +222,7 @@ fn fold_next_to_empty_line() {
  a
 ";
     let mut mock = mock_editor();
-    load_text(&mut mock, text);
+    mock.load_text(text);
 
     process_keypress(&mut mock, EditorKey::ArrowDown);
     process_keypress(&mut mock, EditorKey::Verbatim(ctrl_key(' ')));
@@ -240,7 +237,7 @@ fn fold_wraparound() {
 d";
 
     let mut mock = mock_editor();
-    load_text(&mut mock, text);
+    mock.load_text(text);
 
     process_keypress(&mut mock, EditorKey::ArrowDown);
     process_keypress(&mut mock, EditorKey::Verbatim(ctrl_key(' ')));

@@ -407,315 +407,309 @@ impl EditorConfig {
     fn current_row_len(&self) -> usize {
         self.rows.get(self.cursor_y).map_or(0, |row| row.len())
     }
-}
 
 
-fn update_row_highlights(editor_config: &mut EditorConfig, row_index: usize) {
-    if let Some(mut row) = editor_config.rows.get_mut(row_index) {
-        if let Some(ref syntax) = editor_config.syntax {
-            let mut index = 0;
-            macro_rules! update_and_advance {
+    fn update_row_highlights(&mut self, row_index: usize) {
+        if let Some(mut row) = self.rows.get_mut(row_index) {
+            if let Some(ref syntax) = self.syntax {
+                let mut index = 0;
+                macro_rules! update_and_advance {
             ($highlight_expression:expr) => {
                 row[index].hl = $highlight_expression;
                 index += 1;
             }
         }
-            'outer: while index < row.len() {
-                let prev_is_sep = index == 0 || is_separator(row[index - 1].chr);
-                if syntax.has_digits && row[index].chr.is_digit(10) && prev_is_sep {
-                    while index < row.len() && row[index].chr.is_digit(10) {
-                        update_and_advance!(EditorHighlight::Number);
-                    }
-                } else if syntax.quotes.contains(row[index].chr) {
-                    let start_quote = row[index].chr;
-                    update_and_advance!(EditorHighlight::String);
-                    while index < row.len() {
-                        if row[index].chr == start_quote {
-                            update_and_advance!(EditorHighlight::String);
-                            break;
-                        };
-                        if row[index].chr == '\\' && index + 1 < row.len() {
+                'outer: while index < row.len() {
+                    let prev_is_sep = index == 0 || is_separator(row[index - 1].chr);
+                    if syntax.has_digits && row[index].chr.is_digit(10) && prev_is_sep {
+                        while index < row.len() && row[index].chr.is_digit(10) {
+                            update_and_advance!(EditorHighlight::Number);
+                        }
+                    } else if syntax.quotes.contains(row[index].chr) {
+                        let start_quote = row[index].chr;
+                        update_and_advance!(EditorHighlight::String);
+                        while index < row.len() {
+                            if row[index].chr == start_quote {
+                                update_and_advance!(EditorHighlight::String);
+                                break;
+                            };
+                            if row[index].chr == '\\' && index + 1 < row.len() {
+                                update_and_advance!(EditorHighlight::String);
+                            }
                             update_and_advance!(EditorHighlight::String);
                         }
-                        update_and_advance!(EditorHighlight::String);
-                    }
-                } else if row_to_string(&row[index..].to_vec())
-                              .starts_with(&syntax.singleline_comment) {
-                    while index < row.len() {
-                        update_and_advance!(EditorHighlight::Comment);
-                    }
-                } else {
-                    if index == 0 || is_separator(row[index - 1].chr) {
-                        let following_string: String = row_to_string(&row[index..].to_vec());
-                        for (keywords, &highlight) in
-                            syntax
-                                .keywords
-                                .iter()
-                                .zip([EditorHighlight::Keyword1,
-                                      EditorHighlight::Keyword2,
-                                      EditorHighlight::Keyword3,
-                                      EditorHighlight::Keyword4]
-                                             .iter()) {
-                            for keyword in keywords {
-                                let keyword_end = index + keyword.len();
-                                if following_string.starts_with(keyword) &&
-                                   (keyword_end == row.len() ||
-                                    is_separator(row[keyword_end].chr)) {
-                                    while index < keyword_end {
-                                        update_and_advance!(highlight);
+                    } else if row_to_string(&row[index..].to_vec())
+                                  .starts_with(&syntax.singleline_comment) {
+                        while index < row.len() {
+                            update_and_advance!(EditorHighlight::Comment);
+                        }
+                    } else {
+                        if index == 0 || is_separator(row[index - 1].chr) {
+                            let following_string: String = row_to_string(&row[index..].to_vec());
+                            for (keywords, &highlight) in
+                                syntax
+                                    .keywords
+                                    .iter()
+                                    .zip([EditorHighlight::Keyword1,
+                                          EditorHighlight::Keyword2,
+                                          EditorHighlight::Keyword3,
+                                          EditorHighlight::Keyword4]
+                                                 .iter()) {
+                                for keyword in keywords {
+                                    let keyword_end = index + keyword.len();
+                                    if following_string.starts_with(keyword) &&
+                                       (keyword_end == row.len() ||
+                                        is_separator(row[keyword_end].chr)) {
+                                        while index < keyword_end {
+                                            update_and_advance!(highlight);
+                                        }
+                                        continue 'outer;
                                     }
-                                    continue 'outer;
                                 }
                             }
                         }
+                        update_and_advance!(EditorHighlight::Normal);
                     }
-                    update_and_advance!(EditorHighlight::Normal);
                 }
-            }
-        } else {
-            for cell in row.iter_mut() {
-                cell.hl = EditorHighlight::Normal
+            } else {
+                for cell in row.iter_mut() {
+                    cell.hl = EditorHighlight::Normal
+                }
             }
         }
     }
-}
 
-fn select_syntax(editor_config: &mut EditorConfig) {
-    editor_config.syntax = editor_config
-        .filename
-        .as_ref()
-        .and_then(|filename| {
-            let syntax_database =
-                vec![EditorSyntax {
-                         filetype: "rust".to_string(),
-                         extensions: vec![".rs".to_string()],
-                         has_digits: true,
-                         quotes: "\"".to_string(),
-                         singleline_comment: "//".to_string(),
-                         keywords: [vec!["alignof", "as", "break", "continue", "crate", "else",
-                                         "extern", "fn", "for", "if", "impl", "in", "let",
-                                         "loop", "macro", "match", "mod", "offsetof", "pub",
-                                         "return", "sizeof", "trait", "typeof", "unsafe", "use",
-                                         "where", "while", "yield"]
+    fn select_syntax(&mut self) {
+        self.syntax = self.filename
+            .as_ref()
+            .and_then(|filename| {
+                let syntax_database =
+                    vec![EditorSyntax {
+                             filetype: "rust".to_string(),
+                             extensions: vec![".rs".to_string()],
+                             has_digits: true,
+                             quotes: "\"".to_string(),
+                             singleline_comment: "//".to_string(),
+                             keywords: [vec!["alignof", "as", "break", "continue", "crate",
+                                             "else", "extern", "fn", "for", "if", "impl", "in",
+                                             "let", "loop", "macro", "match", "mod", "offsetof",
+                                             "pub", "return", "sizeof", "trait", "typeof",
+                                             "unsafe", "use", "where", "while", "yield"]
+                                                .iter()
+                                                .map(|x| x.to_string())
+                                                .collect::<Vec<_>>(),
+                                        vec!["box", "mut", "const", "enum", "ref", "static",
+                                             "struct", "type"]
+                                                .iter()
+                                                .map(|x| x.to_string())
+                                                .collect::<Vec<_>>(),
+                                        vec!["false", "self", "Self", "super", "true"]
                                             .iter()
                                             .map(|x| x.to_string())
                                             .collect::<Vec<_>>(),
-                                    vec!["box", "mut", "const", "enum", "ref", "static",
-                                         "struct", "type"]
+                                        vec!["bool", "char", "i8", "i16", "i32", "i64", "isize",
+                                             "f32", "f64", "str", "u8", "u16", "u32", "u64",
+                                             "usize"]
+                                                .iter()
+                                                .map(|x| x.to_string())
+                                                .collect::<Vec<_>>()],
+                         },
+                         EditorSyntax {
+                             filetype: "c".to_string(),
+                             extensions: vec![".c".to_string(),
+                                              ".h".to_string(),
+                                              ".cpp".to_string()],
+                             has_digits: true,
+                             quotes: "\"'".to_string(),
+                             singleline_comment: "//".to_string(),
+                             keywords: [vec![], vec![], vec![], vec![]],
+                         },
+                         EditorSyntax {
+                             filetype: "py".to_string(),
+                             extensions: vec![".py".to_string()],
+                             has_digits: true,
+                             quotes: "\"'".to_string(),
+                             singleline_comment: "#".to_string(),
+                             keywords: [vec!["break", "continue", "def", "elif", "else", "for",
+                                             "from", "if", "import", "in", "return", "while"]
+                                                .iter()
+                                                .map(|x| x.to_string())
+                                                .collect::<Vec<_>>(),
+                                        vec!["any", "abs", "input", "int", "len", "range",
+                                             "print", "zip"]
+                                                .iter()
+                                                .map(|x| x.to_string())
+                                                .collect::<Vec<_>>(),
+                                        vec!["False", "True"]
                                             .iter()
                                             .map(|x| x.to_string())
                                             .collect::<Vec<_>>(),
-                                    vec!["false", "self", "Self", "super", "true"]
-                                        .iter()
-                                        .map(|x| x.to_string())
-                                        .collect::<Vec<_>>(),
-                                    vec!["bool", "char", "i8", "i16", "i32", "i64", "isize",
-                                         "f32", "f64", "str", "u8", "u16", "u32", "u64", "usize"]
+                                        vec!["and", "not", "or"]
                                             .iter()
                                             .map(|x| x.to_string())
                                             .collect::<Vec<_>>()],
-                     },
-                     EditorSyntax {
-                         filetype: "c".to_string(),
-                         extensions: vec![".c".to_string(), ".h".to_string(), ".cpp".to_string()],
-                         has_digits: true,
-                         quotes: "\"'".to_string(),
-                         singleline_comment: "//".to_string(),
-                         keywords: [vec![], vec![], vec![], vec![]],
-                     },
-                     EditorSyntax {
-                         filetype: "py".to_string(),
-                         extensions: vec![".py".to_string()],
-                         has_digits: true,
-                         quotes: "\"'".to_string(),
-                         singleline_comment: "#".to_string(),
-                         keywords: [vec!["break", "continue", "def", "elif", "else", "for",
-                                         "from", "if", "import", "in", "return", "while"]
-                                            .iter()
-                                            .map(|x| x.to_string())
-                                            .collect::<Vec<_>>(),
-                                    vec!["any", "abs", "input", "int", "len", "range", "print",
-                                         "zip"]
-                                            .iter()
-                                            .map(|x| x.to_string())
-                                            .collect::<Vec<_>>(),
-                                    vec!["False", "True"]
-                                        .iter()
-                                        .map(|x| x.to_string())
-                                        .collect::<Vec<_>>(),
-                                    vec!["and", "not", "or"]
-                                        .iter()
-                                        .map(|x| x.to_string())
-                                        .collect::<Vec<_>>()],
-                     }];
-            syntax_database
-                .into_iter()
-                .find(|entry| {
-                          entry
-                              .extensions
-                              .iter()
-                              .any(|extension| filename.ends_with(extension))
-                      })
-        });
-    for index in 0..editor_config.rows.len() {
-        update_row_highlights(editor_config, index);
-    }
-}
-
-
-/// * editor operations **
-
-fn insert_char(editor_config: &mut EditorConfig, c: char) {
-    if editor_config.cursor_y == editor_config.rows.len() {
-        editor_config.rows.push(Vec::new());
-    }
-    editor_config.rows[editor_config.cursor_y].insert(editor_config.cursor_x,
-                                                      Cell {
-                                                          chr: c,
-                                                          hl: EditorHighlight::Normal,
-                                                      });
-    let index = editor_config.cursor_y;
-    update_row_highlights(editor_config, index);
-    editor_config.cursor_x += 1;
-    editor_config.modified = true;
-}
-
-fn insert_newline(editor_config: &mut EditorConfig) {
-    if editor_config.cursor_y < editor_config.rows.len() {
-        let depth = whitespace_depth(&editor_config.rows[editor_config.cursor_y]);
-        // If in the whitespace, insert blank line.
-        if depth >= editor_config.cursor_x {
-            editor_config.rows.insert(editor_config.cursor_y, vec![]);
-        } else {
-            let mut next_row = editor_config.rows[editor_config.cursor_y][..depth].to_vec();
-
-            let row_end = editor_config.rows[editor_config.cursor_y]
-                .split_off(editor_config.cursor_x);
-            next_row.extend(row_end);
-            editor_config
-                .rows
-                .insert(editor_config.cursor_y + 1, next_row);
+                         }];
+                syntax_database
+                    .into_iter()
+                    .find(|entry| {
+                              entry
+                                  .extensions
+                                  .iter()
+                                  .any(|extension| filename.ends_with(extension))
+                          })
+            });
+        for index in 0..self.rows.len() {
+            self.update_row_highlights(index);
         }
-        for row_index in (editor_config.cursor_y..editor_config.rows.len()).rev() {
-            if let Some((end, depth)) = editor_config.folds.remove(&row_index) {
-                editor_config
-                    .folds
-                    .insert(row_index + 1, (end + 1, depth));
+    }
+
+
+    /// * editor operations **
+
+    fn insert_char(&mut self, c: char) {
+        if self.cursor_y == self.rows.len() {
+            self.rows.push(Vec::new());
+        }
+        self.rows[self.cursor_y].insert(self.cursor_x,
+                                        Cell {
+                                            chr: c,
+                                            hl: EditorHighlight::Normal,
+                                        });
+        let index = self.cursor_y;
+        self.update_row_highlights(index);
+        self.cursor_x += 1;
+        self.modified = true;
+    }
+
+    fn insert_newline(&mut self) {
+        if self.cursor_y < self.rows.len() {
+            let depth = whitespace_depth(&self.rows[self.cursor_y]);
+            // If in the whitespace, insert blank line.
+            if depth >= self.cursor_x {
+                self.rows.insert(self.cursor_y, vec![]);
+            } else {
+                let mut next_row = self.rows[self.cursor_y][..depth].to_vec();
+
+                let row_end = self.rows[self.cursor_y].split_off(self.cursor_x);
+                next_row.extend(row_end);
+                self.rows.insert(self.cursor_y + 1, next_row);
+            }
+            for row_index in (self.cursor_y..self.rows.len()).rev() {
+                if let Some((end, depth)) = self.folds.remove(&row_index) {
+                    self.folds.insert(row_index + 1, (end + 1, depth));
+                }
+            }
+            let index = self.cursor_y;
+            self.update_row_highlights(index);
+            self.update_row_highlights(index + 1);
+
+            self.cursor_x = depth;
+        } else {
+            self.rows.push(Vec::new());
+            self.cursor_x = 0;
+        }
+        self.cursor_y += 1;
+        self.modified = true;
+    }
+
+    fn shift_folds_back(&mut self) {
+        for row_index in self.cursor_y..self.rows.len() + 1 {
+            if let Some((end, depth)) = self.folds.remove(&row_index) {
+                self.folds.insert(row_index - 1, (end - 1, depth));
             }
         }
-        let index = editor_config.cursor_y;
-        update_row_highlights(editor_config, index);
-        update_row_highlights(editor_config, index + 1);
-
-        editor_config.cursor_x = depth;
-    } else {
-        editor_config.rows.push(Vec::new());
-        editor_config.cursor_x = 0;
     }
-    editor_config.cursor_y += 1;
-    editor_config.modified = true;
-}
 
-fn shift_folds_back(editor_config: &mut EditorConfig) {
-    for row_index in editor_config.cursor_y..editor_config.rows.len() + 1 {
-        if let Some((end, depth)) = editor_config.folds.remove(&row_index) {
-            editor_config
-                .folds
-                .insert(row_index - 1, (end - 1, depth));
+    fn delete_row(&mut self) {
+        if self.cursor_y < self.rows.len() {
+            if self.cursor_x == 0 {
+                self.rows.remove(self.cursor_y);
+                self.shift_folds_back();
+            } else {
+                self.rows[self.cursor_y].truncate(self.cursor_x);
+                let index = self.cursor_y;
+                self.update_row_highlights(index);
+            }
+            self.modified = true
         }
     }
-}
 
-fn delete_row(editor_config: &mut EditorConfig) {
-    if editor_config.cursor_y < editor_config.rows.len() {
-        if editor_config.cursor_x == 0 {
-            editor_config.rows.remove(editor_config.cursor_y);
-            shift_folds_back(editor_config);
-        } else {
-            editor_config.rows[editor_config.cursor_y].truncate(editor_config.cursor_x);
-            let index = editor_config.cursor_y;
-            update_row_highlights(editor_config, index);
-        }
-        editor_config.modified = true
-    }
-}
-
-fn delete_char(editor_config: &mut EditorConfig) {
-    if let Some(prev_x) = editor_config.cursor_x.checked_sub(1) {
-        editor_config.rows[editor_config.cursor_y].remove(prev_x);
-        let index = editor_config.cursor_y;
-        update_row_highlights(editor_config, index);
-        editor_config.cursor_x = prev_x;
-        editor_config.modified = true
-    } else if 0 < editor_config.cursor_y && editor_config.cursor_y < editor_config.rows.len() {
-        if editor_config
-               .folds
-               .values()
-               .any(|&(end, _)| end == editor_config.cursor_y - 1) {
-            set_status_message(editor_config, DONT_EDIT_FOLDS);
-        } else {
-            editor_config.cursor_x = editor_config.rows[editor_config.cursor_y - 1].len();
-            let moved_line = editor_config.rows.remove(editor_config.cursor_y);
-            let line_to_append = &moved_line[whitespace_depth(&moved_line)..];
-            editor_config.rows[editor_config.cursor_y - 1].extend(line_to_append);
-            shift_folds_back(editor_config);
-            editor_config.cursor_y -= 1;
-            let index = editor_config.cursor_y;
-            update_row_highlights(editor_config, index);
-            editor_config.modified = true
+    fn delete_char(&mut self) {
+        if let Some(prev_x) = self.cursor_x.checked_sub(1) {
+            self.rows[self.cursor_y].remove(prev_x);
+            let index = self.cursor_y;
+            self.update_row_highlights(index);
+            self.cursor_x = prev_x;
+            self.modified = true
+        } else if 0 < self.cursor_y && self.cursor_y < self.rows.len() {
+            if self.folds
+                   .values()
+                   .any(|&(end, _)| end == self.cursor_y - 1) {
+                set_status_message(self, DONT_EDIT_FOLDS);
+            } else {
+                self.cursor_x = self.rows[self.cursor_y - 1].len();
+                let moved_line = self.rows.remove(self.cursor_y);
+                let line_to_append = &moved_line[whitespace_depth(&moved_line)..];
+                self.rows[self.cursor_y - 1].extend(line_to_append);
+                self.shift_folds_back();
+                self.cursor_y -= 1;
+                let index = self.cursor_y;
+                self.update_row_highlights(index);
+                self.modified = true
+            }
         }
     }
-}
 
-/// * file i/o **
-fn open(editor_config: &mut EditorConfig, filename: &str) -> io::Result<()> {
-    editor_config.filename = Some(filename.to_string());
-    select_syntax(editor_config);
+    /// * file i/o **
+    fn open(&mut self, filename: &str) -> io::Result<()> {
+        self.filename = Some(filename.to_string());
+        self.select_syntax();
 
-    if !Path::new(filename).exists() {
-        File::create(filename)?;
-    }
-    let mut file = File::open(filename)?;
-    let mut string = String::new();
-    file.read_to_string(&mut string)?;
-    load_text(editor_config, &string);
-    Ok(())
-}
-
-fn load_text(editor_config: &mut EditorConfig, text: &str) {
-    editor_config.rows = vec![];
-    editor_config.folds = HashMap::new();
-
-    let mut row_buffer = String::new();
-    for byte in text.bytes() {
-        let c = byte as char;
-        if c == '\n' {
-            let row = string_to_row(&row_buffer);
-            let update_index = editor_config.rows.len();
-            editor_config.rows.push(row);
-            update_row_highlights(editor_config, update_index);
-            row_buffer.truncate(0);
-        } else {
-            row_buffer.push(c);
+        if !Path::new(filename).exists() {
+            File::create(filename)?;
         }
+        let mut file = File::open(filename)?;
+        let mut string = String::new();
+        file.read_to_string(&mut string)?;
+        self.load_text(&string);
+        Ok(())
     }
-    let row = string_to_row(&row_buffer);
-    let update_index = editor_config.rows.len();
-    editor_config.rows.push(row);
-    update_row_highlights(editor_config, update_index);
 
-    editor_config.cursor_y = min(editor_config.cursor_y, editor_config.rows.len());
-    editor_config.cursor_x = 0;
-    scroll(editor_config);
-}
+    fn load_text(&mut self, text: &str) {
+        self.rows = vec![];
+        self.folds = HashMap::new();
 
-fn all_text(editor_config: &EditorConfig) -> String {
-    editor_config
+        let mut row_buffer = String::new();
+        for byte in text.bytes() {
+            let c = byte as char;
+            if c == '\n' {
+                let row = string_to_row(&row_buffer);
+                let update_index = self.rows.len();
+                self.rows.push(row);
+                self.update_row_highlights(update_index);
+                row_buffer.truncate(0);
+            } else {
+                row_buffer.push(c);
+            }
+        }
+        let row = string_to_row(&row_buffer);
+        let update_index = self.rows.len();
+        self.rows.push(row);
+        self.update_row_highlights(update_index);
+
+        self.cursor_y = min(self.cursor_y, self.rows.len());
+        self.cursor_x = 0;
+        scroll(self);
+    }
+
+fn all_text(&self) -> String {
+    self
         .rows
         .iter()
         .map(|row| row_to_string(row.as_slice()))
         .collect::<Vec<_>>()
         .join("\n")
+}
 }
 
 fn save(editor_config: &mut EditorConfig) -> io::Result<()> {
@@ -729,14 +723,14 @@ fn save(editor_config: &mut EditorConfig) -> io::Result<()> {
             }
             Some(filename) => {
                 editor_config.filename = Some(filename.clone());
-                select_syntax(editor_config);
+                editor_config.select_syntax();
                 filename
             }
         }
     };
 
     let mut file = File::create(filename)?;
-    let text = all_text(editor_config);
+    let text = editor_config.all_text();
     file.write_all(text.as_bytes())?;
     editor_config.modified = false;
     set_status_message(editor_config,
@@ -749,7 +743,7 @@ fn save(editor_config: &mut EditorConfig) -> io::Result<()> {
 fn find_callback(editor_config: &mut EditorConfig, query: &str, key: EditorKey) {
     if editor_config.cursor_y < editor_config.rows.len() {
         let index = editor_config.cursor_y;
-        update_row_highlights(editor_config, index)
+        editor_config.update_row_highlights(index)
     }
     if key != EditorKey::Verbatim('\r') && key != EditorKey::Verbatim('\x1b') {
         let match_line = {
@@ -1156,7 +1150,9 @@ fn process_keypress(editor_config: &mut EditorConfig, c: EditorKey) -> bool {
                                        "File has unsaved changed, and cannot be refreshed. \
                                         Quit and reopen to discard changes.");
                 } else if let Some(filename) = editor_config.filename.clone() {
-                    open(editor_config, &filename).expect("Refreshing file failed")
+                    editor_config
+                        .open(&filename)
+                        .expect("Refreshing file failed")
                 } else {
                     set_status_message(editor_config, "No file to refresh")
                 }
@@ -1177,7 +1173,7 @@ fn process_keypress(editor_config: &mut EditorConfig, c: EditorKey) -> bool {
             EditorKey::Verbatim(_) if editor_config.folds.contains_key(&editor_config.cursor_y) => {
                 set_status_message(editor_config, DONT_EDIT_FOLDS);
             }
-            EditorKey::Verbatim(chr) if chr == '\r' => insert_newline(editor_config),
+            EditorKey::Verbatim(chr) if chr == '\r' => editor_config.insert_newline(),
             EditorKey::Delete => {
                 if editor_config
                        .folds
@@ -1186,14 +1182,14 @@ fn process_keypress(editor_config: &mut EditorConfig, c: EditorKey) -> bool {
                     set_status_message(editor_config, DONT_EDIT_FOLDS);
                 } else {
                     move_cursor(editor_config, EditorKey::ArrowRight);
-                    delete_char(editor_config);
+                    editor_config.delete_char();
                 }
             }
             EditorKey::Verbatim(chr) if chr as usize == 127 || chr == ctrl_key('h') => {
-                delete_char(editor_config)
+                editor_config.delete_char()
             }
-            EditorKey::Verbatim(chr) if chr == ctrl_key('k') => delete_row(editor_config),
-            EditorKey::Verbatim(chr) => insert_char(editor_config, chr),
+            EditorKey::Verbatim(chr) if chr == ctrl_key('k') => editor_config.delete_row(),
+            EditorKey::Verbatim(chr) => editor_config.insert_char(chr),
         };
         editor_config.quit_times = 3;
         true
@@ -1206,7 +1202,9 @@ fn run() {
     let mut editor_config: EditorConfig = EditorConfig::new();
     print!("{}", CLEAR_SCREEN);
     if let Some(filename) = env::args().nth(1) {
-        open(&mut editor_config, &filename).expect("Opening file failed")
+        editor_config
+            .open(&filename)
+            .expect("Opening file failed")
     }
     set_status_message(&mut editor_config,
                        "Help: C-s save, C-q quit, C-f find, \

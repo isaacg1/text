@@ -14,8 +14,6 @@ use process_keypress;
 use select_syntax;
 use refresh_screen;
 
-use check_consistency;
-
 fn mock_editor() -> EditorConfig {
     EditorConfig {
         filename: None,
@@ -40,7 +38,7 @@ fn empty_text() {
     let mock = mock_editor();
     let text = all_text(&mock);
     assert_eq!(text, "");
-    assert_eq!(None, check_consistency(&mock))
+    assert_eq!(None, mock.check_consistency())
 }
 
 #[test]
@@ -52,7 +50,7 @@ fn line_roundtrip() {
     let text = all_text(&mock);
 
     assert_eq!(line, text);
-    assert_eq!(None, check_consistency(&mock))
+    assert_eq!(None, mock.check_consistency())
 }
 
 #[test]
@@ -68,7 +66,7 @@ fn lines_roundtrip() {
     let text = all_text(&mock);
 
     assert_eq!(lines, text);
-    assert_eq!(None, check_consistency(&mock))
+    assert_eq!(None, mock.check_consistency())
 }
 
 #[test]
@@ -81,7 +79,7 @@ fn simple_typing() {
     }
 
     assert_eq!(typed_text, all_text(&mock));
-    assert_eq!(None, check_consistency(&mock))
+    assert_eq!(None, mock.check_consistency())
 }
 
 #[test]
@@ -97,7 +95,7 @@ fn reversed_typing() {
     let reversed_text = typed_text.chars().rev().collect::<String>();
 
     assert_eq!(reversed_text, all_text(&mock));
-    assert_eq!(None, check_consistency(&mock))
+    assert_eq!(None, mock.check_consistency())
 }
 
 #[test]
@@ -126,13 +124,13 @@ fn moving_around() {
     let mut mock = mock_editor();
 
     process_keypress(&mut mock, EditorKey::ArrowUp);
-    assert_eq!(None, check_consistency(&mock));
+    assert_eq!(None, mock.check_consistency());
     process_keypress(&mut mock, EditorKey::ArrowLeft);
-    assert_eq!(None, check_consistency(&mock));
+    assert_eq!(None, mock.check_consistency());
     process_keypress(&mut mock, EditorKey::ArrowDown);
-    assert_eq!(None, check_consistency(&mock));
+    assert_eq!(None, mock.check_consistency());
     process_keypress(&mut mock, EditorKey::ArrowRight);
-    assert_eq!(None, check_consistency(&mock));
+    assert_eq!(None, mock.check_consistency());
 }
 
 #[test]
@@ -249,11 +247,11 @@ d";
     process_keypress(&mut mock, EditorKey::ArrowRight);
     process_keypress(&mut mock, EditorKey::ArrowRight);
     process_keypress(&mut mock, EditorKey::ArrowRight);
-    assert_eq!(None, check_consistency(&mock));
+    assert_eq!(None, mock.check_consistency());
     assert_eq!(0, mock.cursor_x);
     assert_eq!(3, mock.cursor_y);
     process_keypress(&mut mock, EditorKey::ArrowLeft);
-    assert_eq!(None, check_consistency(&mock));
+    assert_eq!(None, mock.check_consistency());
     assert_eq!(2, mock.cursor_x);
     assert_eq!(1, mock.cursor_y);
 }

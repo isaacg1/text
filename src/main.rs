@@ -78,41 +78,6 @@ struct EditorConfig {
     folds: HashMap<usize, (usize, usize)>,
 }
 
-impl EditorConfig {
-    fn new() -> EditorConfig {
-        let mut ws = libc::winsize {
-            ws_row: 0,
-            ws_col: 0,
-            ws_xpixel: 0,
-            ws_ypixel: 0,
-        };
-        let res;
-        unsafe {
-            res = libc::ioctl(STDOUT, libc::TIOCGWINSZ, &mut ws);
-        }
-        if res == -1 || ws.ws_col == 0 {
-            panic!("Editor config failed.");
-        } else {
-            EditorConfig {
-                filename: None,
-                screen_rows: ws.ws_row.checked_sub(2).expect("Need at least 2 rows") as usize,
-                screen_cols: ws.ws_col as usize,
-                rows: vec![],
-                row_offset: 0,
-                col_offset: 0,
-                cursor_x: 0,
-                cursor_y: 0,
-                status_message: String::new(),
-                status_message_time: Instant::now(),
-                modified: false,
-                quit_times: 3,
-                syntax: None,
-                folds: HashMap::new(),
-            }
-        }
-    }
-}
-
 #[derive(Copy, Clone)]
 struct Cell {
     chr: char,
@@ -175,53 +140,6 @@ struct EditorSyntax {
     quotes: String,
     singleline_comment: String,
     keywords: [Vec<String>; 4],
-}
-
-/// * debug & testing **
-
-fn warn_consistency(editor_config: &mut EditorConfig) {
-    let failure = {
-        check_consistency(editor_config)
-    };
-    if let Some(message) = failure {
-        set_status_message(editor_config, message);
-    }
-}
-
-
-fn check_consistency(editor_config: &EditorConfig) -> Option<&'static str> {
-    let cursor_position_failure = if editor_config.cursor_y > editor_config.rows.len() {
-        Some("Cursor y position out of bounds.")
-    } else if editor_config.cursor_x >
-              current_row_len(editor_config) {
-        Some("Cursor x position is out of bounds")
-    } else {
-        None
-    };
-    let mut fold_failure = None;
-    for (&start, &(end, _)) in &editor_config.folds {
-        if start < editor_config.cursor_y && editor_config.cursor_y <= end {
-            fold_failure = Some("Cursor is inside a fold");
-            break;
-        }
-        if editor_config.rows.len() <= end {
-            fold_failure = Some("Fold goes past end of file");
-            break;
-        }
-    }
-    let mut fold_fold_failure = None;
-    for (&start1, &(end1, _)) in &editor_config.folds {
-        for (&start2, &(end2, _)) in &editor_config.folds {
-            if (start1 <= start2 && start2 <= end1 && end1 <= end2) &&
-               !(start1 == start2 && end1 == end2) {
-                fold_fold_failure = Some("Two folds overlap");
-                break;
-            }
-        }
-    }
-    cursor_position_failure
-        .or(fold_failure)
-        .or(fold_fold_failure)
 }
 
 /// * terminal **
@@ -297,65 +215,141 @@ fn read_key() -> EditorKey {
         .unwrap_or_else(|| EditorKey::Verbatim(c))
 }
 
-/// * folding **
-
-fn toggle_fold(editor_config: &mut EditorConfig) {
-    if editor_config.folds.contains_key(&editor_config.cursor_y) {
-        editor_config.folds.remove(&editor_config.cursor_y);
-    } else if editor_config.cursor_y < editor_config.rows.len() &&
-              whitespace_depth(&editor_config.rows[editor_config.cursor_y]) == 0 {
-        let mut index = 0;
-        while index < editor_config.rows.len() {
-            if let Some(&(end, _)) = editor_config.folds.get(&index) {
-                index = end + 1;
-            } else if whitespace_depth(&editor_config.rows[index]) > 0 {
-                let depth = whitespace_depth(&editor_config.rows[index]);
-                let end = editor_config
-                    .rows
-                    .iter()
-                    .enumerate()
-                    .skip(index + 1)
-                    .position(|(oth_index, row)| {
-                                  whitespace_depth(row) < depth && !row.is_empty() ||
-                                  editor_config.folds.contains_key(&oth_index)
-                              })
-                    .map_or(editor_config.rows.len() - 1, |offset| index + offset);
-                editor_config.folds.insert(index, (end, depth));
-                index = end + 1;
-            } else {
-                index += 1;
+impl EditorConfig {
+    fn new() -> EditorConfig {
+        let mut ws = libc::winsize {
+            ws_row: 0,
+            ws_col: 0,
+            ws_xpixel: 0,
+            ws_ypixel: 0,
+        };
+        let res;
+        unsafe {
+            res = libc::ioctl(STDOUT, libc::TIOCGWINSZ, &mut ws);
+        }
+        if res == -1 || ws.ws_col == 0 {
+            panic!("Editor config failed.");
+        } else {
+            EditorConfig {
+                filename: None,
+                screen_rows: ws.ws_row.checked_sub(2).expect("Need at least 2 rows") as usize,
+                screen_cols: ws.ws_col as usize,
+                rows: vec![],
+                row_offset: 0,
+                col_offset: 0,
+                cursor_x: 0,
+                cursor_y: 0,
+                status_message: String::new(),
+                status_message_time: Instant::now(),
+                modified: false,
+                quit_times: 3,
+                syntax: None,
+                folds: HashMap::new(),
             }
         }
-    } else {
-        create_fold(editor_config);
     }
-}
-fn create_fold(editor_config: &mut EditorConfig) {
-    if editor_config.cursor_y < editor_config.rows.len() {
-        let fold_depth = whitespace_depth(&editor_config.rows[editor_config.cursor_y]);
-        let start = editor_config
-            .rows
-            .iter()
-            .rev()
-            .skip(editor_config.rows.len() - editor_config.cursor_y)
-            .position(|row| whitespace_depth(row) < fold_depth && !row.is_empty())
-            .map_or(0, |reverse_offset| editor_config.cursor_y - reverse_offset);
-        let end = editor_config
-            .rows
-            .iter()
-            .skip(editor_config.cursor_y + 1)
-            .position(|row| whitespace_depth(row) < fold_depth && !row.is_empty())
-            .map_or(editor_config.rows.len() - 1,
-                    |offset| editor_config.cursor_y + offset);
-        editor_config.folds.insert(start, (end, fold_depth));
-        editor_config.cursor_y = start;
+    fn warn_consistency(&mut self) {
+        let failure = {
+            self.check_consistency()
+        };
+        if let Some(message) = failure {
+            set_status_message(self, message);
+        }
     }
-}
 
-fn open_folds(editor_config: &mut EditorConfig) {
-    for (start, (end, _depth)) in editor_config.folds.clone() {
-        if start <= editor_config.cursor_y && editor_config.cursor_y <= end {
-            editor_config.folds.remove(&start);
+    /// * debug & testing **
+
+    fn check_consistency(&self) -> Option<&'static str> {
+        let cursor_position_failure = if self.cursor_y > self.rows.len() {
+            Some("Cursor y position out of bounds.")
+        } else if self.cursor_x > current_row_len(self) {
+            Some("Cursor x position is out of bounds")
+        } else {
+            None
+        };
+        let mut fold_failure = None;
+        for (&start, &(end, _)) in &self.folds {
+            if start < self.cursor_y && self.cursor_y <= end {
+                fold_failure = Some("Cursor is inside a fold");
+                break;
+            }
+            if self.rows.len() <= end {
+                fold_failure = Some("Fold goes past end of file");
+                break;
+            }
+        }
+        let mut fold_fold_failure = None;
+        for (&start1, &(end1, _)) in &self.folds {
+            for (&start2, &(end2, _)) in &self.folds {
+                if (start1 <= start2 && start2 <= end1 && end1 <= end2) &&
+                   !(start1 == start2 && end1 == end2) {
+                    fold_fold_failure = Some("Two folds overlap");
+                    break;
+                }
+            }
+        }
+        cursor_position_failure
+            .or(fold_failure)
+            .or(fold_fold_failure)
+    }
+
+
+    /// * folding **
+
+    fn toggle_fold(&mut self) {
+        if self.folds.contains_key(&self.cursor_y) {
+            self.folds.remove(&self.cursor_y);
+        } else if self.cursor_y < self.rows.len() &&
+                  whitespace_depth(&self.rows[self.cursor_y]) == 0 {
+            let mut index = 0;
+            while index < self.rows.len() {
+                if let Some(&(end, _)) = self.folds.get(&index) {
+                    index = end + 1;
+                } else if whitespace_depth(&self.rows[index]) > 0 {
+                    let depth = whitespace_depth(&self.rows[index]);
+                    let end = self.rows
+                        .iter()
+                        .enumerate()
+                        .skip(index + 1)
+                        .position(|(oth_index, row)| {
+                                      whitespace_depth(row) < depth && !row.is_empty() ||
+                                      self.folds.contains_key(&oth_index)
+                                  })
+                        .map_or(self.rows.len() - 1, |offset| index + offset);
+                    self.folds.insert(index, (end, depth));
+                    index = end + 1;
+                } else {
+                    index += 1;
+                }
+            }
+        } else {
+            self.create_fold();
+        }
+    }
+    fn create_fold(&mut self) {
+        if self.cursor_y < self.rows.len() {
+            let fold_depth = whitespace_depth(&self.rows[self.cursor_y]);
+            let start = self.rows
+                .iter()
+                .rev()
+                .skip(self.rows.len() - self.cursor_y)
+                .position(|row| whitespace_depth(row) < fold_depth && !row.is_empty())
+                .map_or(0, |reverse_offset| self.cursor_y - reverse_offset);
+            let end = self.rows
+                .iter()
+                .skip(self.cursor_y + 1)
+                .position(|row| whitespace_depth(row) < fold_depth && !row.is_empty())
+                .map_or(self.rows.len() - 1, |offset| self.cursor_y + offset);
+            self.folds.insert(start, (end, fold_depth));
+            self.cursor_y = start;
+        }
+    }
+
+    fn open_folds(&mut self) {
+        for (start, (end, _depth)) in self.folds.clone() {
+            if start <= self.cursor_y && self.cursor_y <= end {
+                self.folds.remove(&start);
+            }
         }
     }
 }
@@ -800,7 +794,7 @@ fn find_callback(editor_config: &mut EditorConfig, query: &str, key: EditorKey) 
                 .find(query)
                 .expect("We just checked the row contained the string");
             editor_config.cursor_y = match_line;
-            open_folds(editor_config);
+            editor_config.open_folds();
             editor_config.cursor_x = match_index;
             editor_config.row_offset = editor_config.rows.len();
             for cell in editor_config.rows[match_line]
@@ -1181,7 +1175,7 @@ fn process_keypress(editor_config: &mut EditorConfig, c: EditorKey) -> bool {
             }
             EditorKey::Verbatim(chr) if chr == ctrl_key('f') => find(editor_config),
             EditorKey::Verbatim(chr) if chr == ctrl_key('g') => go_to(editor_config),
-            EditorKey::Verbatim(chr) if chr == ctrl_key(' ') => toggle_fold(editor_config),
+            EditorKey::Verbatim(chr) if chr == ctrl_key(' ') => editor_config.toggle_fold(),
             // Editing commands
             EditorKey::Delete |
             EditorKey::Verbatim(_) if editor_config.folds.contains_key(&editor_config.cursor_y) => {
@@ -1222,7 +1216,7 @@ fn run() {
                        "Help: C-s save, C-q quit, C-f find, \
                        C-' ' fold, C-e refresh, C-k del row, C-g go to.");
     loop {
-        warn_consistency(&mut editor_config);
+        editor_config.warn_consistency();
         refresh_screen(&mut editor_config);
         let to_continue = process_keypress(&mut editor_config, read_key());
         if !to_continue {

@@ -361,10 +361,11 @@ fn open_folds(editor_config: &mut EditorConfig) {
 }
 
 fn one_row_forward(editor_config: &EditorConfig, index: usize) -> usize {
-    editor_config
-        .folds
-        .get(&index)
-        .map_or(index, |&(end, _)| end) + 1
+    min(editor_config.rows.len(),
+        editor_config
+            .folds
+            .get(&index)
+            .map_or(index, |&(end, _)| end) + 1)
 }
 
 fn one_row_back(editor_config: &EditorConfig, index: usize) -> usize {
@@ -1107,17 +1108,16 @@ fn move_cursor(editor_config: &mut EditorConfig, key: EditorKey) {
         EditorKey::ArrowLeft => {
             if let Some(prev_x) = editor_config.cursor_x.checked_sub(1) {
                 editor_config.cursor_x = prev_x
-            } else if let Some(prev_y) = editor_config.cursor_y.checked_sub(1) {
-                editor_config.cursor_y = prev_y;
+            } else {
+                editor_config.cursor_y = one_row_back(editor_config, editor_config.cursor_y);
                 editor_config.cursor_x = current_row_len(editor_config);
             }
         }
         EditorKey::ArrowRight => {
             if editor_config.cursor_x < current_row_len(editor_config) {
                 editor_config.cursor_x += 1
-            } else if editor_config.cursor_x == current_row_len(editor_config) &&
-                      editor_config.cursor_y < editor_config.rows.len() {
-                editor_config.cursor_y += 1;
+            } else if editor_config.cursor_x == current_row_len(editor_config) {
+                editor_config.cursor_y = one_row_forward(editor_config, editor_config.cursor_y);
                 editor_config.cursor_x = 0
             }
         }

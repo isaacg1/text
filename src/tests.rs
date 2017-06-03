@@ -233,3 +233,27 @@ fn fold_next_to_empty_line() {
     process_keypress(&mut mock, EditorKey::Verbatim(ctrl_key(' ')));
     refresh_screen(&mut mock);
 }
+
+#[test]
+fn fold_wraparound() {
+    let text = "a
+ b
+ c
+d";
+
+    let mut mock = mock_editor();
+    load_text(&mut mock, text);
+
+    process_keypress(&mut mock, EditorKey::ArrowDown);
+    process_keypress(&mut mock, EditorKey::Verbatim(ctrl_key(' ')));
+    process_keypress(&mut mock, EditorKey::ArrowRight);
+    process_keypress(&mut mock, EditorKey::ArrowRight);
+    process_keypress(&mut mock, EditorKey::ArrowRight);
+    assert_eq!(None, check_consistency(&mock));
+    assert_eq!(0, mock.cursor_x);
+    assert_eq!(3, mock.cursor_y);
+    process_keypress(&mut mock, EditorKey::ArrowLeft);
+    assert_eq!(None, check_consistency(&mock));
+    assert_eq!(2, mock.cursor_x);
+    assert_eq!(1, mock.cursor_y);
+}

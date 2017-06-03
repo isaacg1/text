@@ -8,9 +8,6 @@ use EditorKey;
 use ctrl_key;
 use EditorHighlight;
 
-use process_keypress;
-use refresh_screen;
-
 fn mock_editor() -> EditorConfig {
     EditorConfig {
         filename: None,
@@ -72,7 +69,7 @@ fn simple_typing() {
 
     let mut mock = mock_editor();
     for c in typed_text.chars() {
-        process_keypress(&mut mock, EditorKey::Verbatim(c));
+        mock.process_keypress(EditorKey::Verbatim(c));
     }
 
     assert_eq!(typed_text, mock.all_text());
@@ -85,8 +82,8 @@ fn reversed_typing() {
 
     let mut mock = mock_editor();
     for c in typed_text.chars() {
-        process_keypress(&mut mock, EditorKey::Verbatim(c));
-        process_keypress(&mut mock, EditorKey::ArrowLeft);
+        mock.process_keypress(EditorKey::Verbatim(c));
+        mock.process_keypress(EditorKey::ArrowLeft);
     }
 
     let reversed_text = typed_text.chars().rev().collect::<String>();
@@ -105,9 +102,9 @@ fn newline_typing() {
 
     for _ in 0..3 {
         for _ in 0..6 {
-            process_keypress(&mut mock, EditorKey::ArrowRight);
+            mock.process_keypress(EditorKey::ArrowRight);
         }
-        process_keypress(&mut mock, EditorKey::Verbatim('\r'));
+        mock.process_keypress(EditorKey::Verbatim('\r'));
     }
     assert_eq!(mock.all_text(),
                "Hello,
@@ -120,13 +117,13 @@ fn newline_typing() {
 fn moving_around() {
     let mut mock = mock_editor();
 
-    process_keypress(&mut mock, EditorKey::ArrowUp);
+    mock.process_keypress(EditorKey::ArrowUp);
     assert_eq!(None, mock.check_consistency());
-    process_keypress(&mut mock, EditorKey::ArrowLeft);
+    mock.process_keypress(EditorKey::ArrowLeft);
     assert_eq!(None, mock.check_consistency());
-    process_keypress(&mut mock, EditorKey::ArrowDown);
+    mock.process_keypress(EditorKey::ArrowDown);
     assert_eq!(None, mock.check_consistency());
-    process_keypress(&mut mock, EditorKey::ArrowRight);
+    mock.process_keypress(EditorKey::ArrowRight);
     assert_eq!(None, mock.check_consistency());
 }
 
@@ -186,18 +183,18 @@ b
 
     assert_eq!(mock.rows.len(), 3);
 
-    process_keypress(&mut mock, EditorKey::ArrowDown);
-    process_keypress(&mut mock, EditorKey::ArrowDown);
+    mock.process_keypress(EditorKey::ArrowDown);
+    mock.process_keypress(EditorKey::ArrowDown);
     assert_eq!(mock.cursor_y, 2);
-    process_keypress(&mut mock, EditorKey::Verbatim(ctrl_key(' ')));
-    process_keypress(&mut mock, EditorKey::ArrowUp);
-    process_keypress(&mut mock, EditorKey::ArrowUp);
-    process_keypress(&mut mock, EditorKey::ArrowRight);
+    mock.process_keypress(EditorKey::Verbatim(ctrl_key(' ')));
+    mock.process_keypress(EditorKey::ArrowUp);
+    mock.process_keypress(EditorKey::ArrowUp);
+    mock.process_keypress(EditorKey::ArrowRight);
     assert_eq!(mock.cursor_y, 0);
     assert_eq!(mock.cursor_x, 1);
-    process_keypress(&mut mock, EditorKey::Delete);
+    mock.process_keypress(EditorKey::Delete);
     assert_eq!(mock.rows.len(), 2);
-    refresh_screen(&mut mock);
+    mock.refresh_screen();
 }
 
 #[test]
@@ -208,11 +205,11 @@ fn fold_last_row_delete_row() {
     let mut mock = mock_editor();
     mock.load_text(text);
 
-    process_keypress(&mut mock, EditorKey::ArrowDown);
-    process_keypress(&mut mock, EditorKey::Verbatim(ctrl_key(' ')));
-    process_keypress(&mut mock, EditorKey::ArrowUp);
-    process_keypress(&mut mock, EditorKey::Verbatim(ctrl_key('k')));
-    refresh_screen(&mut mock);
+    mock.process_keypress(EditorKey::ArrowDown);
+    mock.process_keypress(EditorKey::Verbatim(ctrl_key(' ')));
+    mock.process_keypress(EditorKey::ArrowUp);
+    mock.process_keypress(EditorKey::Verbatim(ctrl_key('k')));
+    mock.refresh_screen();
     assert_eq!(" b", mock.all_text());
 }
 
@@ -224,9 +221,9 @@ fn fold_next_to_empty_line() {
     let mut mock = mock_editor();
     mock.load_text(text);
 
-    process_keypress(&mut mock, EditorKey::ArrowDown);
-    process_keypress(&mut mock, EditorKey::Verbatim(ctrl_key(' ')));
-    refresh_screen(&mut mock);
+    mock.process_keypress(EditorKey::ArrowDown);
+    mock.process_keypress(EditorKey::Verbatim(ctrl_key(' ')));
+    mock.refresh_screen();
 }
 
 #[test]
@@ -239,15 +236,15 @@ d";
     let mut mock = mock_editor();
     mock.load_text(text);
 
-    process_keypress(&mut mock, EditorKey::ArrowDown);
-    process_keypress(&mut mock, EditorKey::Verbatim(ctrl_key(' ')));
-    process_keypress(&mut mock, EditorKey::ArrowRight);
-    process_keypress(&mut mock, EditorKey::ArrowRight);
-    process_keypress(&mut mock, EditorKey::ArrowRight);
+    mock.process_keypress(EditorKey::ArrowDown);
+    mock.process_keypress(EditorKey::Verbatim(ctrl_key(' ')));
+    mock.process_keypress(EditorKey::ArrowRight);
+    mock.process_keypress(EditorKey::ArrowRight);
+    mock.process_keypress(EditorKey::ArrowRight);
     assert_eq!(None, mock.check_consistency());
     assert_eq!(0, mock.cursor_x);
     assert_eq!(3, mock.cursor_y);
-    process_keypress(&mut mock, EditorKey::ArrowLeft);
+    mock.process_keypress(EditorKey::ArrowLeft);
     assert_eq!(None, mock.check_consistency());
     assert_eq!(2, mock.cursor_x);
     assert_eq!(1, mock.cursor_y);

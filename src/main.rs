@@ -282,7 +282,7 @@ impl EditorConfig {
             self.check_consistency()
         };
         if let Some(message) = failure {
-            set_status_message(self, message);
+            self.set_status_message(message);
         }
     }
 
@@ -645,7 +645,7 @@ impl EditorConfig {
             if self.folds
                    .values()
                    .any(|&(end, _)| end == self.cursor_y - 1) {
-                set_status_message(self, DONT_EDIT_FOLDS);
+                self.set_status_message(DONT_EDIT_FOLDS);
             } else {
                 self.cursor_x = self.rows[self.cursor_y - 1].len();
                 let moved_line = self.rows.remove(self.cursor_y);
@@ -699,501 +699,481 @@ impl EditorConfig {
 
         self.cursor_y = min(self.cursor_y, self.rows.len());
         self.cursor_x = 0;
-        scroll(self);
+        self.scroll();
     }
 
-fn all_text(&self) -> String {
-    self
-        .rows
-        .iter()
-        .map(|row| row_to_string(row.as_slice()))
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-}
-
-fn save(editor_config: &mut EditorConfig) -> io::Result<()> {
-    let filename = if let Some(ref filename) = editor_config.filename {
-        filename.clone()
-    } else {
-        match prompt(editor_config, "Save as: ", None) {
-            None => {
-                set_status_message(editor_config, "Save aborted");
-                return Ok(());
-            }
-            Some(filename) => {
-                editor_config.filename = Some(filename.clone());
-                editor_config.select_syntax();
-                filename
-            }
-        }
-    };
-
-    let mut file = File::create(filename)?;
-    let text = editor_config.all_text();
-    file.write_all(text.as_bytes())?;
-    editor_config.modified = false;
-    set_status_message(editor_config,
-                       &format!("{} bytes written to disk", text.len()));
-    Ok(())
-}
-
-/// * macro movement **
-
-fn find_callback(editor_config: &mut EditorConfig, query: &str, key: EditorKey) {
-    if editor_config.cursor_y < editor_config.rows.len() {
-        let index = editor_config.cursor_y;
-        editor_config.update_row_highlights(index)
+    fn all_text(&self) -> String {
+        self.rows
+            .iter()
+            .map(|row| row_to_string(row.as_slice()))
+            .collect::<Vec<_>>()
+            .join("\n")
     }
-    if key != EditorKey::Verbatim('\r') && key != EditorKey::Verbatim('\x1b') {
-        let match_line = {
-            let find_predicate = &|row: &Row| row_to_string(row).contains(query);
-            if key == EditorKey::ArrowRight || key == EditorKey::ArrowDown {
-                let potential_match = if editor_config.cursor_y + 1 < editor_config.rows.len() {
-                    editor_config
-                        .rows
-                        .iter()
-                        .skip(editor_config.cursor_y + 1)
-                        .position(find_predicate)
-                        .map(|offset| offset + editor_config.cursor_y + 1)
-                } else {
-                    None
-                };
-                potential_match.or_else(|| editor_config.rows.iter().position(find_predicate))
-            } else if key == EditorKey::ArrowLeft || key == EditorKey::ArrowUp {
-                let potential_match = editor_config.rows[..editor_config.cursor_y]
-                    .iter()
-                    .rposition(find_predicate);
-                potential_match.or_else(|| editor_config.rows.iter().rposition(find_predicate))
-            } else {
-                let potential_match = if editor_config.cursor_y < editor_config.rows.len() {
-                    editor_config
-                        .rows
-                        .iter()
-                        .skip(editor_config.cursor_y)
-                        .position(find_predicate)
-                        .map(|offset| offset + editor_config.cursor_y)
-                } else {
-                    None
-                };
-                potential_match.or_else(|| editor_config.rows.iter().position(find_predicate))
-            }
-        };
-        if let Some(match_line) = match_line {
-            let match_index = row_to_string(&editor_config.rows[match_line])
-                .find(query)
-                .expect("We just checked the row contained the string");
-            editor_config.cursor_y = match_line;
-            editor_config.open_folds();
-            editor_config.cursor_x = match_index;
-            editor_config.row_offset = editor_config.rows.len();
-            for cell in editor_config.rows[match_line]
-                    .iter_mut()
-                    .skip(match_index)
-                    .take(query.len()) {
-                cell.hl = EditorHighlight::Match
-            }
-        }
-    }
-}
 
-fn find(editor_config: &mut EditorConfig) {
-    let saved_cursor_x = editor_config.cursor_x;
-    let saved_cursor_y = editor_config.cursor_y;
-    let saved_col_offset = editor_config.col_offset;
-    let saved_row_offset = editor_config.row_offset;
-    let saved_folds = editor_config.folds.clone();
-
-    let query = prompt(editor_config,
-                       "Search (ESC/Arrows/Enter): ",
-                       Some(&find_callback));
-
-    if query.is_none() {
-        editor_config.cursor_x = saved_cursor_x;
-        editor_config.cursor_y = saved_cursor_y;
-        editor_config.col_offset = saved_col_offset;
-        editor_config.row_offset = saved_row_offset;
-        editor_config.folds = saved_folds;
-    }
-}
-
-fn go_to(editor_config: &mut EditorConfig) {
-    if let Some(response) = prompt(editor_config, "Go to line: ", None) {
-        match response.parse::<usize>() {
-            Ok(line) => {
-                if 0 < line && line - 1 <= editor_config.rows.len() {
-                    editor_config.cursor_y = line - 1;
-                    editor_config.cursor_x = 0;
-                } else {
-                    set_status_message(editor_config,
-                                       &format!("Line {} outside of range of file", line));
-                }
-            }
-            Err(_) => set_status_message(editor_config, "Line was not numeric"),
-        }
-    }
-}
-
-/// * output **
-
-fn scroll(editor_config: &mut EditorConfig) {
-    editor_config.row_offset = min(editor_config.row_offset, editor_config.cursor_y);
-    while screen_y(editor_config) >= editor_config.screen_rows {
-        editor_config.row_offset = editor_config.one_row_forward(editor_config.row_offset)
-    }
-    editor_config.col_offset = min(editor_config.col_offset, editor_config.cursor_x);
-    while screen_x(editor_config) >= editor_config.screen_cols {
-        editor_config.col_offset += 1;
-    }
-}
-
-fn draw_rows(editor_config: &EditorConfig, append_buffer: &mut String) {
-    let tab = &" ".repeat(TAB_STOP);
-    let mut screen_y = 0;
-    let mut file_row = editor_config.row_offset;
-    while screen_y < editor_config.screen_rows {
-        if let Some(&(fold_end, fold_depth)) = editor_config.folds.get(&file_row) {
-            let row = &editor_config.rows[file_row];
-            let fold_white = if fold_depth < row.len() {
-                row[..fold_depth].to_vec()
-            } else {
-                string_to_row(&" ".repeat(fold_depth))
-            };
-            let fold_white_visible = if editor_config.col_offset < fold_white.len() {
-                fold_white[editor_config.col_offset..].to_vec()
-            } else {
-                vec![]
-            };
-            let mut fold_white_str = row_to_string(&fold_white_visible).replace("\t", tab);
-            let fold_msg = format!("{} lines folded.", fold_end - file_row + 1);
-            fold_white_str.truncate(editor_config.screen_cols.saturating_sub(fold_msg.len()));
-            append_buffer.push_str(&fold_white_str);
-            append_buffer.push_str(INVERT_COLORS);
-            append_buffer.push_str(&fold_msg);
-            let padding = editor_config
-                .screen_cols
-                .saturating_sub(fold_msg.len() + fold_white_str.len());
-            append_buffer.push_str(&" ".repeat(padding));
-            append_buffer.push_str(REVERT_COLORS);
-            file_row = fold_end + 1;
-        } else if file_row < editor_config.rows.len() {
-            let current_row = &editor_config.rows[file_row];
-            if editor_config.col_offset < current_row.len() {
-                let mut current_hl = EditorHighlight::Normal;
-                let mut chars_written = 0;
-                for &Cell { chr, hl } in current_row.iter().skip(editor_config.col_offset) {
-                    if hl != current_hl {
-                        current_hl = hl;
-                        append_buffer.push_str(&hl.color());
-                    }
-                    chars_written += if chr == '\t' { TAB_STOP } else { 1 };
-                    if chars_written > editor_config.screen_cols {
-                        break;
-                    }
-                    if chr == '\t' {
-                        append_buffer.push_str(tab);
-                    } else if chr.is_control() {
-                        append_buffer.push_str(INVERT_COLORS);
-                        let sym = if chr.is_ascii() && chr as u8 <= 26 {
-                            (64 + (chr as u8)) as char
-                        } else {
-                            '?'
-                        };
-                        append_buffer.push(sym);
-                        append_buffer.push_str(REVERT_COLORS);
-                        append_buffer.push_str(&hl.color());
-                    } else {
-                        append_buffer.push(chr);
-                    }
-                }
-                append_buffer.push_str(REVERT_COLORS);
-            }
-            file_row += 1;
-        } else if editor_config.rows.is_empty() && screen_y == editor_config.screen_rows / 3 {
-            let welcome = format!("Isaac's editor -- version {}", IED_VERSION);
-            let padding = editor_config.screen_cols.saturating_sub(welcome.len()) / 2;
-            if padding > 0 {
-                append_buffer.push('~');
-                append_buffer.push_str(&" ".repeat(padding - 1));
-            }
-            append_buffer.push_str(&welcome);
-            file_row += 1;
+    fn save(&mut self) -> io::Result<()> {
+        let filename = if let Some(ref filename) = self.filename {
+            filename.clone()
         } else {
-            append_buffer.push('~');
-            file_row += 1;
+            match self.prompt("Save as: ", None) {
+                None => {
+                    self.set_status_message("Save aborted");
+                    return Ok(());
+                }
+                Some(filename) => {
+                    self.filename = Some(filename.clone());
+                    self.select_syntax();
+                    filename
+                }
+            }
         };
-        append_buffer.push_str(CLEAR_RIGHT);
+
+        let mut file = File::create(filename)?;
+        let text = self.all_text();
+        file.write_all(text.as_bytes())?;
+        self.modified = false;
+        self.set_status_message(&format!("{} bytes written to disk", text.len()));
+        Ok(())
+    }
+
+    /// * macro movement **
+
+    fn find_callback(&mut self, query: &str, key: EditorKey) {
+        if self.cursor_y < self.rows.len() {
+            let index = self.cursor_y;
+            self.update_row_highlights(index)
+        }
+        if key != EditorKey::Verbatim('\r') && key != EditorKey::Verbatim('\x1b') {
+            let match_line = {
+                let find_predicate = &|row: &Row| row_to_string(row).contains(query);
+                if key == EditorKey::ArrowRight || key == EditorKey::ArrowDown {
+                    let potential_match = if self.cursor_y + 1 < self.rows.len() {
+                        self.rows
+                            .iter()
+                            .skip(self.cursor_y + 1)
+                            .position(find_predicate)
+                            .map(|offset| offset + self.cursor_y + 1)
+                    } else {
+                        None
+                    };
+                    potential_match.or_else(|| self.rows.iter().position(find_predicate))
+                } else if key == EditorKey::ArrowLeft || key == EditorKey::ArrowUp {
+                    let potential_match = self.rows[..self.cursor_y]
+                        .iter()
+                        .rposition(find_predicate);
+                    potential_match.or_else(|| self.rows.iter().rposition(find_predicate))
+                } else {
+                    let potential_match = if self.cursor_y < self.rows.len() {
+                        self.rows
+                            .iter()
+                            .skip(self.cursor_y)
+                            .position(find_predicate)
+                            .map(|offset| offset + self.cursor_y)
+                    } else {
+                        None
+                    };
+                    potential_match.or_else(|| self.rows.iter().position(find_predicate))
+                }
+            };
+            if let Some(match_line) = match_line {
+                let match_index = row_to_string(&self.rows[match_line])
+                    .find(query)
+                    .expect("We just checked the row contained the string");
+                self.cursor_y = match_line;
+                self.open_folds();
+                self.cursor_x = match_index;
+                self.row_offset = self.rows.len();
+                for cell in self.rows[match_line]
+                        .iter_mut()
+                        .skip(match_index)
+                        .take(query.len()) {
+                    cell.hl = EditorHighlight::Match
+                }
+            }
+        }
+    }
+
+    fn find(&mut self) {
+        let saved_cursor_x = self.cursor_x;
+        let saved_cursor_y = self.cursor_y;
+        let saved_col_offset = self.col_offset;
+        let saved_row_offset = self.row_offset;
+        let saved_folds = self.folds.clone();
+
+        let query = self.prompt("Search (ESC/Arrows/Enter): ",
+                                Some(&|ed, query, key| ed.find_callback(query, key)));
+
+        if query.is_none() {
+            self.cursor_x = saved_cursor_x;
+            self.cursor_y = saved_cursor_y;
+            self.col_offset = saved_col_offset;
+            self.row_offset = saved_row_offset;
+            self.folds = saved_folds;
+        }
+    }
+
+    fn go_to(&mut self) {
+        if let Some(response) = self.prompt("Go to line: ", None) {
+            match response.parse::<usize>() {
+                Ok(line) => {
+                    if 0 < line && line - 1 <= self.rows.len() {
+                        self.cursor_y = line - 1;
+                        self.cursor_x = 0;
+                    } else {
+                        self.set_status_message(&format!("Line {} outside of range of file", line));
+                    }
+                }
+                Err(_) => self.set_status_message("Line was not numeric"),
+            }
+        }
+    }
+
+    /// * output **
+
+    fn scroll(&mut self) {
+        self.row_offset = min(self.row_offset, self.cursor_y);
+        while self.screen_y() >= self.screen_rows {
+            self.row_offset = self.one_row_forward(self.row_offset)
+        }
+        self.col_offset = min(self.col_offset, self.cursor_x);
+        while self.screen_x() >= self.screen_cols {
+            self.col_offset += 1;
+        }
+    }
+
+    fn draw_rows(&self, append_buffer: &mut String) {
+        let tab = &" ".repeat(TAB_STOP);
+        let mut screen_y = 0;
+        let mut file_row = self.row_offset;
+        while screen_y < self.screen_rows {
+            if let Some(&(fold_end, fold_depth)) = self.folds.get(&file_row) {
+                let row = &self.rows[file_row];
+                let fold_white = if fold_depth < row.len() {
+                    row[..fold_depth].to_vec()
+                } else {
+                    string_to_row(&" ".repeat(fold_depth))
+                };
+                let fold_white_visible = if self.col_offset < fold_white.len() {
+                    fold_white[self.col_offset..].to_vec()
+                } else {
+                    vec![]
+                };
+                let mut fold_white_str = row_to_string(&fold_white_visible).replace("\t", tab);
+                let fold_msg = format!("{} lines folded.", fold_end - file_row + 1);
+                fold_white_str.truncate(self.screen_cols.saturating_sub(fold_msg.len()));
+                append_buffer.push_str(&fold_white_str);
+                append_buffer.push_str(INVERT_COLORS);
+                append_buffer.push_str(&fold_msg);
+                let padding = self.screen_cols
+                    .saturating_sub(fold_msg.len() + fold_white_str.len());
+                append_buffer.push_str(&" ".repeat(padding));
+                append_buffer.push_str(REVERT_COLORS);
+                file_row = fold_end + 1;
+            } else if file_row < self.rows.len() {
+                let current_row = &self.rows[file_row];
+                if self.col_offset < current_row.len() {
+                    let mut current_hl = EditorHighlight::Normal;
+                    let mut chars_written = 0;
+                    for &Cell { chr, hl } in current_row.iter().skip(self.col_offset) {
+                        if hl != current_hl {
+                            current_hl = hl;
+                            append_buffer.push_str(&hl.color());
+                        }
+                        chars_written += if chr == '\t' { TAB_STOP } else { 1 };
+                        if chars_written > self.screen_cols {
+                            break;
+                        }
+                        if chr == '\t' {
+                            append_buffer.push_str(tab);
+                        } else if chr.is_control() {
+                            append_buffer.push_str(INVERT_COLORS);
+                            let sym = if chr.is_ascii() && chr as u8 <= 26 {
+                                (64 + (chr as u8)) as char
+                            } else {
+                                '?'
+                            };
+                            append_buffer.push(sym);
+                            append_buffer.push_str(REVERT_COLORS);
+                            append_buffer.push_str(&hl.color());
+                        } else {
+                            append_buffer.push(chr);
+                        }
+                    }
+                    append_buffer.push_str(REVERT_COLORS);
+                }
+                file_row += 1;
+            } else if self.rows.is_empty() && screen_y == self.screen_rows / 3 {
+                let welcome = format!("Isaac's editor -- version {}", IED_VERSION);
+                let padding = self.screen_cols.saturating_sub(welcome.len()) / 2;
+                if padding > 0 {
+                    append_buffer.push('~');
+                    append_buffer.push_str(&" ".repeat(padding - 1));
+                }
+                append_buffer.push_str(&welcome);
+                file_row += 1;
+            } else {
+                append_buffer.push('~');
+                file_row += 1;
+            };
+            append_buffer.push_str(CLEAR_RIGHT);
+            append_buffer.push_str("\r\n");
+            screen_y += 1;
+        }
+    }
+
+    fn draw_status_bar(&self, append_buffer: &mut String) {
+        append_buffer.push_str(INVERT_COLORS);
+        let mut name = self.filename
+            .clone()
+            .unwrap_or_else(|| "[No Name]".to_string());
+        name.truncate(20);
+        let dirty = if self.modified { "(modified)" } else { "" };
+        let mut status = format!("{} {}", name, dirty);
+        status.truncate(self.screen_cols);
+        append_buffer.push_str(&status);
+        let filetype = match self.syntax {
+            None => "no ft".to_string(),
+            Some(ref syntax) => syntax.filetype.clone(),
+        };
+        let mut right_status = format!("{} | r: {}/{}, c: {}/{}",
+                                       filetype,
+                                       self.cursor_y + 1,
+                                       self.rows.len(),
+                                       self.cursor_x + 1,
+                                       self.rows.get(self.cursor_y).map_or(0, |row| row.len()));
+        right_status.truncate(self.screen_cols.saturating_sub(status.len() + 1));
+        append_buffer.push_str(&" ".repeat(self.screen_cols
+                                               .saturating_sub(status.len() +
+                                                               right_status.len())));
+        append_buffer.push_str(&right_status);
+        append_buffer.push_str(REVERT_COLORS);
         append_buffer.push_str("\r\n");
-        screen_y += 1;
     }
-}
 
-fn draw_status_bar(editor_config: &EditorConfig, append_buffer: &mut String) {
-    append_buffer.push_str(INVERT_COLORS);
-    let mut name = editor_config
-        .filename
-        .clone()
-        .unwrap_or_else(|| "[No Name]".to_string());
-    name.truncate(20);
-    let dirty = if editor_config.modified {
-        "(modified)"
-    } else {
-        ""
-    };
-    let mut status = format!("{} {}", name, dirty);
-    status.truncate(editor_config.screen_cols);
-    append_buffer.push_str(&status);
-    let filetype = match editor_config.syntax {
-        None => "no ft".to_string(),
-        Some(ref syntax) => syntax.filetype.clone(),
-    };
-    let mut right_status = format!("{} | r: {}/{}, c: {}/{}",
-                                   filetype,
-                                   editor_config.cursor_y + 1,
-                                   editor_config.rows.len(),
-                                   editor_config.cursor_x + 1,
-                                   editor_config
-                                       .rows
-                                       .get(editor_config.cursor_y)
-                                       .map_or(0, |row| row.len()));
-    right_status.truncate(editor_config
-                              .screen_cols
-                              .saturating_sub(status.len() + 1));
-    append_buffer.push_str(&" ".repeat(editor_config
-                                           .screen_cols
-                                           .saturating_sub(status.len() + right_status.len())));
-    append_buffer.push_str(&right_status);
-    append_buffer.push_str(REVERT_COLORS);
-    append_buffer.push_str("\r\n");
-}
-
-fn draw_message_bar(editor_config: &EditorConfig, append_buffer: &mut String) {
-    append_buffer.push_str(CLEAR_RIGHT);
-    if editor_config.status_message_time.elapsed().as_secs() < 5 {
-        let mut message = editor_config.status_message.clone();
-        message.truncate(editor_config.screen_cols);
-        append_buffer.push_str(&message);
+    fn draw_message_bar(&self, append_buffer: &mut String) {
+        append_buffer.push_str(CLEAR_RIGHT);
+        if self.status_message_time.elapsed().as_secs() < 5 {
+            let mut message = self.status_message.clone();
+            message.truncate(self.screen_cols);
+            append_buffer.push_str(&message);
+        }
     }
-}
 
-fn refresh_screen(editor_config: &mut EditorConfig) {
-    scroll(editor_config);
-    let mut append_buffer: String = String::new();
-    append_buffer.push_str(HIDE_CURSOR);
-    append_buffer.push_str(CURSOR_TOP_RIGHT);
+    fn refresh_screen(&mut self) {
+        self.scroll();
+        let mut append_buffer: String = String::new();
+        append_buffer.push_str(HIDE_CURSOR);
+        append_buffer.push_str(CURSOR_TOP_RIGHT);
 
-    draw_rows(editor_config, &mut append_buffer);
-    draw_status_bar(editor_config, &mut append_buffer);
-    draw_message_bar(editor_config, &mut append_buffer);
+        self.draw_rows(&mut append_buffer);
+        self.draw_status_bar(&mut append_buffer);
+        self.draw_message_bar(&mut append_buffer);
 
-    let cursor_control = format!("\x1b[{};{}H",
-                                 screen_y(editor_config) + 1,
-                                 screen_x(editor_config) + 1);
-    append_buffer.push_str(&cursor_control);
-    append_buffer.push_str(SHOW_CURSOR);
-    print!("{}", append_buffer);
-    io::stdout()
-        .flush()
-        .expect("Flushing to stdout should work");
-}
+        let cursor_control = format!("\x1b[{};{}H", self.screen_y() + 1, self.screen_x() + 1);
+        append_buffer.push_str(&cursor_control);
+        append_buffer.push_str(SHOW_CURSOR);
+        print!("{}", append_buffer);
+        io::stdout()
+            .flush()
+            .expect("Flushing to stdout should work");
+    }
 
-fn set_status_message(editor_config: &mut EditorConfig, message: &str) {
-    editor_config.status_message = message.to_string();
-    editor_config.status_message_time = Instant::now();
-}
+    fn set_status_message(&mut self, message: &str) {
+        self.status_message = message.to_string();
+        self.status_message_time = Instant::now();
+    }
 
-/// * input **
+    /// * input **
 
-fn prompt(editor_config: &mut EditorConfig,
-          prompt: &str,
-          callback: Option<&Fn(&mut EditorConfig, &str, EditorKey) -> ()>)
-          -> Option<String> {
-    let mut response = String::new();
-    loop {
-        set_status_message(editor_config, &format!("{}{}", prompt, response));
-        refresh_screen(editor_config);
+    fn prompt(&mut self,
+              prompt: &str,
+              callback: Option<&Fn(&mut EditorConfig, &str, EditorKey) -> ()>)
+              -> Option<String> {
+        let mut response = String::new();
+        loop {
+            self.set_status_message(&format!("{}{}", prompt, response));
+            self.refresh_screen();
 
-        let c = read_key();
-        macro_rules! maybe_callback {
+            let c = read_key();
+            macro_rules! maybe_callback {
             () => {
                 if let Some(callback) = callback {
-                    callback(editor_config, &response, c)
+                    callback(self, &response, c)
                 }
             }
         }
-        match c {
-            EditorKey::Verbatim(chr) if chr == '\x1b' || chr == ctrl_key('q') => {
-                set_status_message(editor_config, "");
-                maybe_callback!();
-                return None;
-            }
-            EditorKey::Verbatim(chr) if chr == '\r' => {
-                if !response.is_empty() {
-                    set_status_message(editor_config, "");
+            match c {
+                EditorKey::Verbatim(chr) if chr == '\x1b' || chr == ctrl_key('q') => {
+                    self.set_status_message("");
                     maybe_callback!();
-                    return Some(response);
+                    return None;
+                }
+                EditorKey::Verbatim(chr) if chr == '\r' => {
+                    if !response.is_empty() {
+                        self.set_status_message("");
+                        maybe_callback!();
+                        return Some(response);
+                    }
+                }
+                EditorKey::Verbatim(chr) if chr == ctrl_key('h') || chr == 127 as char => {
+                    if !response.is_empty() {
+                        response.pop();
+                    }
+                }
+                EditorKey::Delete => {
+                    if !response.is_empty() {
+                        response.pop();
+                    }
+                }
+                EditorKey::Verbatim(chr) if chr as usize >= 32 && (chr as usize) < 128 => {
+                    response.push(chr)
+                }
+                _ => (),
+            };
+            maybe_callback!();
+        }
+    }
+
+    fn screen_x(&self) -> usize {
+        self.rows
+            .get(self.cursor_y)
+            .map_or(0, |row| {
+                row.iter()
+                    .take(self.cursor_x)
+                    .skip(self.col_offset)
+                    .map(|cell| if cell.chr == '\t' { TAB_STOP } else { 1 })
+                    .sum()
+            })
+    }
+
+    fn screen_y(&self) -> usize {
+        let mut file_y = self.row_offset;
+        let mut screen_y = 0;
+        while file_y < self.cursor_y {
+            file_y = self.one_row_forward(file_y);
+            screen_y += 1;
+        }
+        screen_y
+    }
+
+    fn move_cursor(&mut self, key: EditorKey) {
+        // Smaller values are up and left
+        match key {
+            EditorKey::ArrowUp => {
+                if self.cursor_y > 0 {
+                    self.cursor_y = self.one_row_back(self.cursor_y);
                 }
             }
-            EditorKey::Verbatim(chr) if chr == ctrl_key('h') || chr == 127 as char => {
-                if !response.is_empty() {
-                    response.pop();
+            EditorKey::ArrowDown => {
+                if self.cursor_y < self.rows.len() {
+                    self.cursor_y = self.one_row_forward(self.cursor_y);
                 }
             }
-            EditorKey::Delete => {
-                if !response.is_empty() {
-                    response.pop();
+            EditorKey::ArrowLeft => {
+                if let Some(prev_x) = self.cursor_x.checked_sub(1) {
+                    self.cursor_x = prev_x
+                } else {
+                    self.cursor_y = self.one_row_back(self.cursor_y);
+                    self.cursor_x = self.current_row_len();
                 }
             }
-            EditorKey::Verbatim(chr) if chr as usize >= 32 && (chr as usize) < 128 => {
-                response.push(chr)
+            EditorKey::ArrowRight => {
+                if self.cursor_x < self.current_row_len() {
+                    self.cursor_x += 1
+                } else if self.cursor_x == self.current_row_len() {
+                    self.cursor_y = self.one_row_forward(self.cursor_y);
+                    self.cursor_x = 0
+                }
             }
-            _ => (),
+            EditorKey::PageUp => {
+                for _ in 0..self.screen_rows.saturating_sub(1) {
+                    self.move_cursor(EditorKey::ArrowUp)
+                }
+            }
+            EditorKey::PageDown => {
+                for _ in 0..self.screen_rows.saturating_sub(1) {
+                    self.move_cursor(EditorKey::ArrowDown)
+                }
+            }
+            EditorKey::Home => self.cursor_x = 0,
+            EditorKey::End => self.cursor_x = self.current_row_len(),
+
+            _ => panic!("Editor move cursor received non moving character"),
         };
-        maybe_callback!();
+        self.cursor_x = min(self.cursor_x, self.current_row_len());
     }
-}
-
-fn screen_x(editor_config: &EditorConfig) -> usize {
-    editor_config
-        .rows
-        .get(editor_config.cursor_y)
-        .map_or(0, |row| {
-            row.iter()
-                .take(editor_config.cursor_x)
-                .skip(editor_config.col_offset)
-                .map(|cell| if cell.chr == '\t' { TAB_STOP } else { 1 })
-                .sum()
-        })
-}
-
-fn screen_y(editor_config: &EditorConfig) -> usize {
-    let mut file_y = editor_config.row_offset;
-    let mut screen_y = 0;
-    while file_y < editor_config.cursor_y {
-        file_y = editor_config.one_row_forward(file_y);
-        screen_y += 1;
-    }
-    screen_y
-}
-
-fn move_cursor(editor_config: &mut EditorConfig, key: EditorKey) {
-    // Smaller values are up and left
-    match key {
-        EditorKey::ArrowUp => {
-            if editor_config.cursor_y > 0 {
-                editor_config.cursor_y = editor_config.one_row_back(editor_config.cursor_y);
-            }
-        }
-        EditorKey::ArrowDown => {
-            if editor_config.cursor_y < editor_config.rows.len() {
-                editor_config.cursor_y = editor_config.one_row_forward(editor_config.cursor_y);
-            }
-        }
-        EditorKey::ArrowLeft => {
-            if let Some(prev_x) = editor_config.cursor_x.checked_sub(1) {
-                editor_config.cursor_x = prev_x
-            } else {
-                editor_config.cursor_y = editor_config.one_row_back(editor_config.cursor_y);
-                editor_config.cursor_x = editor_config.current_row_len();
-            }
-        }
-        EditorKey::ArrowRight => {
-            if editor_config.cursor_x < editor_config.current_row_len() {
-                editor_config.cursor_x += 1
-            } else if editor_config.cursor_x == editor_config.current_row_len() {
-                editor_config.cursor_y = editor_config.one_row_forward(editor_config.cursor_y);
-                editor_config.cursor_x = 0
-            }
-        }
-        EditorKey::PageUp => {
-            for _ in 0..editor_config.screen_rows.saturating_sub(1) {
-                move_cursor(editor_config, EditorKey::ArrowUp)
-            }
-        }
-        EditorKey::PageDown => {
-            for _ in 0..editor_config.screen_rows.saturating_sub(1) {
-                move_cursor(editor_config, EditorKey::ArrowDown)
-            }
-        }
-        EditorKey::Home => editor_config.cursor_x = 0,
-        EditorKey::End => editor_config.cursor_x = editor_config.current_row_len(),
-
-        _ => panic!("Editor move cursor received non moving character"),
-    };
-    editor_config.cursor_x = min(editor_config.cursor_x, editor_config.current_row_len());
-}
 
 // Return value indicates whether we should continue processing keypresses.
-fn process_keypress(editor_config: &mut EditorConfig, c: EditorKey) -> bool {
+fn process_keypress(&mut self, c: EditorKey) -> bool {
     if c == EditorKey::Verbatim(ctrl_key('q')) {
-        if editor_config.modified && editor_config.quit_times > 0 {
-            let quit_times = editor_config.quit_times;
-            set_status_message(editor_config,
-                               &format!("Warning: File has unsaved changes. Ctrl-S to \
-                                                save, or press Ctrl-Q {} more times to quit.",
-                                        quit_times));
-            editor_config.quit_times -= 1;
+        if self.modified && self.quit_times > 0 {
+            let quit_times = self.quit_times;
+            self.set_status_message(&format!("Warning: File has unsaved changes.\
+                                                       Ctrl-S to save, or press Ctrl-Q \
+                                                       {} more times to quit.",
+                                                      quit_times));
+            self.quit_times -= 1;
             true
         } else {
-            editor_config.quit_times = 3;
+            self.quit_times = 3;
             false
         }
     } else {
         match c {
             EditorKey::ArrowUp | EditorKey::ArrowDown | EditorKey::ArrowLeft |
             EditorKey::ArrowRight | EditorKey::PageUp | EditorKey::PageDown | EditorKey::Home |
-            EditorKey::End => move_cursor(editor_config, c),
+            EditorKey::End => self.move_cursor(c),
             EditorKey::Verbatim(chr) if chr == '\x1b' || chr == ctrl_key('l') => (),
             EditorKey::Verbatim(chr) if chr == ctrl_key('e') => {
-                if editor_config.modified {
-                    set_status_message(editor_config,
-                                       "File has unsaved changed, and cannot be refreshed. \
-                                        Quit and reopen to discard changes.");
-                } else if let Some(filename) = editor_config.filename.clone() {
-                    editor_config
+                if self.modified {
+                    self.set_status_message("File has unsaved changed, and \
+                                                      cannot be refreshed. Quit and \
+                                                      reopen to discard changes.");
+                } else if let Some(filename) = self.filename.clone() {
+                    self
                         .open(&filename)
                         .expect("Refreshing file failed")
                 } else {
-                    set_status_message(editor_config, "No file to refresh")
+                    self.set_status_message("No file to refresh")
                 }
             }
             EditorKey::Verbatim(chr) if chr == ctrl_key('s') => {
-                match save(editor_config) {
+                match self.save() {
                     Ok(()) => (),
                     Err(e) => {
-                        set_status_message(editor_config, &format!("Saving failed with {}", e))
+                        self.set_status_message(&format!("Saving failed with {}", e))
                     }
                 }
             }
-            EditorKey::Verbatim(chr) if chr == ctrl_key('f') => find(editor_config),
-            EditorKey::Verbatim(chr) if chr == ctrl_key('g') => go_to(editor_config),
-            EditorKey::Verbatim(chr) if chr == ctrl_key(' ') => editor_config.toggle_fold(),
+            EditorKey::Verbatim(chr) if chr == ctrl_key('f') => self.find(),
+            EditorKey::Verbatim(chr) if chr == ctrl_key('g') => self.go_to(),
+            EditorKey::Verbatim(chr) if chr == ctrl_key(' ') => self.toggle_fold(),
             // Editing commands
             EditorKey::Delete |
-            EditorKey::Verbatim(_) if editor_config.folds.contains_key(&editor_config.cursor_y) => {
-                set_status_message(editor_config, DONT_EDIT_FOLDS);
+            EditorKey::Verbatim(_) if self.folds.contains_key(&self.cursor_y) => {
+                self.set_status_message(DONT_EDIT_FOLDS);
             }
-            EditorKey::Verbatim(chr) if chr == '\r' => editor_config.insert_newline(),
+            EditorKey::Verbatim(chr) if chr == '\r' => self.insert_newline(),
             EditorKey::Delete => {
-                if editor_config
+                if self
                        .folds
-                       .contains_key(&(editor_config.cursor_y + 1)) &&
-                   editor_config.cursor_x == editor_config.rows[editor_config.cursor_y].len() {
-                    set_status_message(editor_config, DONT_EDIT_FOLDS);
+                       .contains_key(&(self.cursor_y + 1)) &&
+                   self.cursor_x == self.rows[self.cursor_y].len() {
+                    self.set_status_message(DONT_EDIT_FOLDS);
                 } else {
-                    move_cursor(editor_config, EditorKey::ArrowRight);
-                    editor_config.delete_char();
+                    self.move_cursor(EditorKey::ArrowRight);
+                    self.delete_char();
                 }
             }
             EditorKey::Verbatim(chr) if chr as usize == 127 || chr == ctrl_key('h') => {
-                editor_config.delete_char()
+                self.delete_char()
             }
-            EditorKey::Verbatim(chr) if chr == ctrl_key('k') => editor_config.delete_row(),
-            EditorKey::Verbatim(chr) => editor_config.insert_char(chr),
+            EditorKey::Verbatim(chr) if chr == ctrl_key('k') => self.delete_row(),
+            EditorKey::Verbatim(chr) => self.insert_char(chr),
         };
-        editor_config.quit_times = 3;
+        self.quit_times = 3;
         true
     }
+}
 }
 
 /// * init **
@@ -1206,13 +1186,12 @@ fn run() {
             .open(&filename)
             .expect("Opening file failed")
     }
-    set_status_message(&mut editor_config,
-                       "Help: C-s save, C-q quit, C-f find, \
+    editor_config.set_status_message("Help: C-s save, C-q quit, C-f find, \
                        C-' ' fold, C-e refresh, C-k del row, C-g go to.");
     loop {
         editor_config.warn_consistency();
-        refresh_screen(&mut editor_config);
-        let to_continue = process_keypress(&mut editor_config, read_key());
+        editor_config.refresh_screen();
+        let to_continue = editor_config.process_keypress(read_key());
         if !to_continue {
             break;
         }

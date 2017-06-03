@@ -1102,78 +1102,72 @@ impl EditorConfig {
         self.cursor_x = min(self.cursor_x, self.current_row_len());
     }
 
-// Return value indicates whether we should continue processing keypresses.
-fn process_keypress(&mut self, c: EditorKey) -> bool {
-    if c == EditorKey::Verbatim(ctrl_key('q')) {
-        if self.modified && self.quit_times > 0 {
-            let quit_times = self.quit_times;
-            self.set_status_message(&format!("Warning: File has unsaved changes.\
+    // Return value indicates whether we should continue processing keypresses.
+    fn process_keypress(&mut self, c: EditorKey) -> bool {
+        if c == EditorKey::Verbatim(ctrl_key('q')) {
+            if self.modified && self.quit_times > 0 {
+                let quit_times = self.quit_times;
+                self.set_status_message(&format!("Warning: File has unsaved changes.\
                                                        Ctrl-S to save, or press Ctrl-Q \
                                                        {} more times to quit.",
-                                                      quit_times));
-            self.quit_times -= 1;
-            true
+                                                 quit_times));
+                self.quit_times -= 1;
+                true
+            } else {
+                self.quit_times = 3;
+                false
+            }
         } else {
-            self.quit_times = 3;
-            false
-        }
-    } else {
-        match c {
-            EditorKey::ArrowUp | EditorKey::ArrowDown | EditorKey::ArrowLeft |
-            EditorKey::ArrowRight | EditorKey::PageUp | EditorKey::PageDown | EditorKey::Home |
-            EditorKey::End => self.move_cursor(c),
-            EditorKey::Verbatim(chr) if chr == '\x1b' || chr == ctrl_key('l') => (),
-            EditorKey::Verbatim(chr) if chr == ctrl_key('e') => {
-                if self.modified {
-                    self.set_status_message("File has unsaved changed, and \
+            match c {
+                EditorKey::ArrowUp | EditorKey::ArrowDown | EditorKey::ArrowLeft |
+                EditorKey::ArrowRight | EditorKey::PageUp | EditorKey::PageDown |
+                EditorKey::Home | EditorKey::End => self.move_cursor(c),
+                EditorKey::Verbatim(chr) if chr == '\x1b' || chr == ctrl_key('l') => (),
+                EditorKey::Verbatim(chr) if chr == ctrl_key('e') => {
+                    if self.modified {
+                        self.set_status_message("File has unsaved changed, and \
                                                       cannot be refreshed. Quit and \
                                                       reopen to discard changes.");
-                } else if let Some(filename) = self.filename.clone() {
-                    self
-                        .open(&filename)
-                        .expect("Refreshing file failed")
-                } else {
-                    self.set_status_message("No file to refresh")
-                }
-            }
-            EditorKey::Verbatim(chr) if chr == ctrl_key('s') => {
-                match self.save() {
-                    Ok(()) => (),
-                    Err(e) => {
-                        self.set_status_message(&format!("Saving failed with {}", e))
+                    } else if let Some(filename) = self.filename.clone() {
+                        self.open(&filename).expect("Refreshing file failed")
+                    } else {
+                        self.set_status_message("No file to refresh")
                     }
                 }
-            }
-            EditorKey::Verbatim(chr) if chr == ctrl_key('f') => self.find(),
-            EditorKey::Verbatim(chr) if chr == ctrl_key('g') => self.go_to(),
-            EditorKey::Verbatim(chr) if chr == ctrl_key(' ') => self.toggle_fold(),
-            // Editing commands
-            EditorKey::Delete |
-            EditorKey::Verbatim(_) if self.folds.contains_key(&self.cursor_y) => {
-                self.set_status_message(DONT_EDIT_FOLDS);
-            }
-            EditorKey::Verbatim(chr) if chr == '\r' => self.insert_newline(),
-            EditorKey::Delete => {
-                if self
-                       .folds
-                       .contains_key(&(self.cursor_y + 1)) &&
-                   self.cursor_x == self.rows[self.cursor_y].len() {
-                    self.set_status_message(DONT_EDIT_FOLDS);
-                } else {
-                    self.move_cursor(EditorKey::ArrowRight);
-                    self.delete_char();
+                EditorKey::Verbatim(chr) if chr == ctrl_key('s') => {
+                    match self.save() {
+                        Ok(()) => (),
+                        Err(e) => self.set_status_message(&format!("Saving failed with {}", e)),
+                    }
                 }
-            }
-            EditorKey::Verbatim(chr) if chr as usize == 127 || chr == ctrl_key('h') => {
-                self.delete_char()
-            }
-            EditorKey::Verbatim(chr) if chr == ctrl_key('k') => self.delete_row(),
-            EditorKey::Verbatim(chr) => self.insert_char(chr),
-        };
-        self.quit_times = 3;
-        true
+                EditorKey::Verbatim(chr) if chr == ctrl_key('f') => self.find(),
+                EditorKey::Verbatim(chr) if chr == ctrl_key('g') => self.go_to(),
+                EditorKey::Verbatim(chr) if chr == ctrl_key(' ') => self.toggle_fold(),
+                // Editing commands
+                EditorKey::Delete |
+                EditorKey::Verbatim(_) if self.folds.contains_key(&self.cursor_y) => {
+                    self.set_status_message(DONT_EDIT_FOLDS);
+                }
+                EditorKey::Verbatim(chr) if chr == '\r' => self.insert_newline(),
+                EditorKey::Delete => {
+                    if self.folds.contains_key(&(self.cursor_y + 1)) &&
+                       self.cursor_x == self.rows[self.cursor_y].len() {
+                        self.set_status_message(DONT_EDIT_FOLDS);
+                    } else {
+                        self.move_cursor(EditorKey::ArrowRight);
+                        self.delete_char();
+                    }
+                }
+                EditorKey::Verbatim(chr) if chr as usize == 127 || chr == ctrl_key('h') => {
+                    self.delete_char()
+                }
+                EditorKey::Verbatim(chr) if chr == ctrl_key('k') => self.delete_row(),
+                EditorKey::Verbatim(chr) => self.insert_char(chr),
+            };
+            self.quit_times = 3;
+            true
+        }
     }
-}
 }
 
 /// * init **

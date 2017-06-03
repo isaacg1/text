@@ -215,6 +215,35 @@ fn read_key() -> EditorKey {
         .unwrap_or_else(|| EditorKey::Verbatim(c))
 }
 
+/// * syntax highlighting **
+
+fn is_separator(c: char) -> bool {
+    c.is_whitespace() || "&{}'\",.()+-/*=~%<>[];:".contains(c)
+}
+
+fn whitespace_depth(row: &[Cell]) -> usize {
+    row.iter()
+        .position(|cell| !cell.chr.is_whitespace())
+        .unwrap_or_else(|| row.len())
+}
+
+/// * row operations **
+
+fn row_to_string(row: &[Cell]) -> String {
+    row.iter().map(|&cell| cell.chr).collect::<String>()
+}
+
+fn string_to_row(s: &str) -> Row {
+    s.chars()
+        .map(|c| {
+                 Cell {
+                     chr: c,
+                     hl: EditorHighlight::Normal,
+                 }
+             })
+        .collect()
+}
+
 impl EditorConfig {
     fn new() -> EditorConfig {
         let mut ws = libc::winsize {
@@ -262,7 +291,7 @@ impl EditorConfig {
     fn check_consistency(&self) -> Option<&'static str> {
         let cursor_position_failure = if self.cursor_y > self.rows.len() {
             Some("Cursor y position out of bounds.")
-        } else if self.cursor_x > current_row_len(self) {
+        } else if self.cursor_x > self.current_row_len() {
             Some("Cursor x position is out of bounds")
         } else {
             None
@@ -352,67 +381,34 @@ impl EditorConfig {
             }
         }
     }
-}
 
-fn one_row_forward(editor_config: &EditorConfig, index: usize) -> usize {
-    min(editor_config.rows.len(),
-        editor_config
-            .folds
-            .get(&index)
-            .map_or(index, |&(end, _)| end) + 1)
-}
+    fn one_row_forward(&self, index: usize) -> usize {
+        min(self.rows.len(),
+            self.folds.get(&index).map_or(index, |&(end, _)| end) + 1)
+    }
 
-fn one_row_back(editor_config: &EditorConfig, index: usize) -> usize {
-    if let Some(prev_index) = index.checked_sub(1) {
-        if let Some((&start, _end_and_depth)) =
-            editor_config
-                .folds
-                .iter()
-                .find(|&(_start, &(end, _depth))| end == prev_index) {
-            start
+    fn one_row_back(&self, index: usize) -> usize {
+        if let Some(prev_index) = index.checked_sub(1) {
+            if let Some((&start, _end_and_depth)) =
+                self.folds
+                    .iter()
+                    .find(|&(_start, &(end, _depth))| end == prev_index) {
+                start
+            } else {
+                prev_index
+            }
         } else {
-            prev_index
+            0
         }
-    } else {
-        0
+    }
+
+    /// * row operations **
+
+    fn current_row_len(&self) -> usize {
+        self.rows.get(self.cursor_y).map_or(0, |row| row.len())
     }
 }
 
-/// * syntax highlighting **
-
-fn is_separator(c: char) -> bool {
-    c.is_whitespace() || "&{}'\",.()+-/*=~%<>[];:".contains(c)
-}
-
-fn whitespace_depth(row: &[Cell]) -> usize {
-    row.iter()
-        .position(|cell| !cell.chr.is_whitespace())
-        .unwrap_or_else(|| row.len())
-}
-
-/// * row operations **
-
-fn current_row_len(editor_config: &EditorConfig) -> usize {
-    editor_config
-        .rows
-        .get(editor_config.cursor_y)
-        .map_or(0, |row| row.len())
-}
-
-fn row_to_string(row: &[Cell]) -> String {
-    row.iter().map(|&cell| cell.chr).collect::<String>()
-}
-
-fn string_to_row(s: &str) -> Row {
-    s.chars()
-        .map(|c| {
-                 Cell {
-                     chr: c,
-                     hl: EditorHighlight::Normal,
-                 }
-             })
-        .collect()
-}
 
 fn update_row_highlights(editor_config: &mut EditorConfig, row_index: usize) {
     if let Some(mut row) = editor_config.rows.get_mut(row_index) {
@@ -849,7 +845,7 @@ fn go_to(editor_config: &mut EditorConfig) {
 fn scroll(editor_config: &mut EditorConfig) {
     editor_config.row_offset = min(editor_config.row_offset, editor_config.cursor_y);
     while screen_y(editor_config) >= editor_config.screen_rows {
-        editor_config.row_offset = one_row_forward(editor_config, editor_config.row_offset)
+        editor_config.row_offset = editor_config.one_row_forward(editor_config.row_offset)
     }
     editor_config.col_offset = min(editor_config.col_offset, editor_config.cursor_x);
     while screen_x(editor_config) >= editor_config.screen_cols {
@@ -1080,7 +1076,7 @@ fn screen_y(editor_config: &EditorConfig) -> usize {
     let mut file_y = editor_config.row_offset;
     let mut screen_y = 0;
     while file_y < editor_config.cursor_y {
-        file_y = one_row_forward(editor_config, file_y);
+        file_y = editor_config.one_row_forward(file_y);
         screen_y += 1;
     }
     screen_y
@@ -1091,27 +1087,27 @@ fn move_cursor(editor_config: &mut EditorConfig, key: EditorKey) {
     match key {
         EditorKey::ArrowUp => {
             if editor_config.cursor_y > 0 {
-                editor_config.cursor_y = one_row_back(editor_config, editor_config.cursor_y);
+                editor_config.cursor_y = editor_config.one_row_back(editor_config.cursor_y);
             }
         }
         EditorKey::ArrowDown => {
             if editor_config.cursor_y < editor_config.rows.len() {
-                editor_config.cursor_y = one_row_forward(editor_config, editor_config.cursor_y);
+                editor_config.cursor_y = editor_config.one_row_forward(editor_config.cursor_y);
             }
         }
         EditorKey::ArrowLeft => {
             if let Some(prev_x) = editor_config.cursor_x.checked_sub(1) {
                 editor_config.cursor_x = prev_x
             } else {
-                editor_config.cursor_y = one_row_back(editor_config, editor_config.cursor_y);
-                editor_config.cursor_x = current_row_len(editor_config);
+                editor_config.cursor_y = editor_config.one_row_back(editor_config.cursor_y);
+                editor_config.cursor_x = editor_config.current_row_len();
             }
         }
         EditorKey::ArrowRight => {
-            if editor_config.cursor_x < current_row_len(editor_config) {
+            if editor_config.cursor_x < editor_config.current_row_len() {
                 editor_config.cursor_x += 1
-            } else if editor_config.cursor_x == current_row_len(editor_config) {
-                editor_config.cursor_y = one_row_forward(editor_config, editor_config.cursor_y);
+            } else if editor_config.cursor_x == editor_config.current_row_len() {
+                editor_config.cursor_y = editor_config.one_row_forward(editor_config.cursor_y);
                 editor_config.cursor_x = 0
             }
         }
@@ -1126,11 +1122,11 @@ fn move_cursor(editor_config: &mut EditorConfig, key: EditorKey) {
             }
         }
         EditorKey::Home => editor_config.cursor_x = 0,
-        EditorKey::End => editor_config.cursor_x = current_row_len(editor_config),
+        EditorKey::End => editor_config.cursor_x = editor_config.current_row_len(),
 
         _ => panic!("Editor move cursor received non moving character"),
     };
-    editor_config.cursor_x = min(editor_config.cursor_x, current_row_len(editor_config));
+    editor_config.cursor_x = min(editor_config.cursor_x, editor_config.current_row_len());
 }
 
 // Return value indicates whether we should continue processing keypresses.

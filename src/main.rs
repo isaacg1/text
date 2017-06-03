@@ -625,10 +625,21 @@ fn insert_newline(editor_config: &mut EditorConfig) {
     editor_config.modified = true;
 }
 
+fn shift_folds_back(editor_config: &mut EditorConfig) {
+    for row_index in editor_config.cursor_y..editor_config.rows.len() + 1 {
+        if let Some((end, depth)) = editor_config.folds.remove(&row_index) {
+            editor_config
+                .folds
+                .insert(row_index - 1, (end - 1, depth));
+        }
+    }
+}
+
 fn delete_row(editor_config: &mut EditorConfig) {
     if editor_config.cursor_y < editor_config.rows.len() {
         if editor_config.cursor_x == 0 {
             editor_config.rows.remove(editor_config.cursor_y);
+            shift_folds_back(editor_config);
         } else {
             editor_config.rows[editor_config.cursor_y].truncate(editor_config.cursor_x);
             let index = editor_config.cursor_y;
@@ -656,13 +667,7 @@ fn delete_char(editor_config: &mut EditorConfig) {
             let moved_line = editor_config.rows.remove(editor_config.cursor_y);
             let line_to_append = &moved_line[whitespace_depth(&moved_line)..];
             editor_config.rows[editor_config.cursor_y - 1].extend(line_to_append);
-            for row_index in editor_config.cursor_y..editor_config.rows.len() + 1 {
-                if let Some((end, depth)) = editor_config.folds.remove(&row_index) {
-                    editor_config
-                        .folds
-                        .insert(row_index - 1, (end - 1, depth));
-                }
-            }
+            shift_folds_back(editor_config);
             editor_config.cursor_y -= 1;
             let index = editor_config.cursor_y;
             update_row_highlights(editor_config, index);
@@ -863,7 +868,12 @@ fn draw_rows(editor_config: &EditorConfig, append_buffer: &mut String) {
     let mut file_row = editor_config.row_offset;
     while screen_y < editor_config.screen_rows {
         if let Some(&(fold_end, fold_depth)) = editor_config.folds.get(&file_row) {
-            let fold_white = &editor_config.rows[file_row][..fold_depth];
+            let row = &editor_config.rows[file_row];
+            let fold_white = if fold_depth < row.len() {
+                row[..fold_depth].to_vec()
+            } else {
+                string_to_row(&" ".repeat(fold_depth))
+            };
             let fold_white_visible = if editor_config.col_offset < fold_white.len() {
                 fold_white[editor_config.col_offset..].to_vec()
             } else {

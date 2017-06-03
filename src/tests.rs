@@ -12,7 +12,6 @@ use all_text;
 use load_text;
 use process_keypress;
 use select_syntax;
-use draw_rows;
 use refresh_screen;
 
 use check_consistency;
@@ -182,7 +181,7 @@ fn hello_world_highlight() {
 }
 
 #[test]
-fn fold_last_row_delete() {
+fn fold_last_row_delete_char() {
     let text = "a
 b
  c";
@@ -203,7 +202,34 @@ b
     assert_eq!(mock.cursor_x, 1);
     process_keypress(&mut mock, EditorKey::Delete);
     assert_eq!(mock.rows.len(), 2);
-    let mut append_buffer = String::new();
-    draw_rows(&mock, &mut append_buffer);
-    refresh_screen(&mut mock)
+    refresh_screen(&mut mock);
+}
+
+#[test]
+fn fold_last_row_delete_row() {
+    let text = "a
+ b";
+
+    let mut mock = mock_editor();
+    load_text(&mut mock, text);
+
+    process_keypress(&mut mock, EditorKey::ArrowDown);
+    process_keypress(&mut mock, EditorKey::Verbatim(ctrl_key(' ')));
+    process_keypress(&mut mock, EditorKey::ArrowUp);
+    process_keypress(&mut mock, EditorKey::Verbatim(ctrl_key('k')));
+    refresh_screen(&mut mock);
+    assert_eq!(" b", all_text(&mock));
+}
+
+#[test]
+fn fold_next_to_empty_line() {
+    let text = "
+ a
+";
+    let mut mock = mock_editor();
+    load_text(&mut mock, text);
+
+    process_keypress(&mut mock, EditorKey::ArrowDown);
+    process_keypress(&mut mock, EditorKey::Verbatim(ctrl_key(' ')));
+    refresh_screen(&mut mock);
 }

@@ -420,68 +420,71 @@ fn string_to_row(s: &str) -> Row {
 }
 
 fn update_row_highlights(editor_config: &mut EditorConfig, row_index: usize) {
-    let row = &mut editor_config.rows[row_index];
-    if let Some(ref syntax) = editor_config.syntax {
-        let mut index = 0;
-        macro_rules! update_and_advance {
+    if let Some(mut row) = editor_config.rows.get_mut(row_index) {
+        if let Some(ref syntax) = editor_config.syntax {
+            let mut index = 0;
+            macro_rules! update_and_advance {
             ($highlight_expression:expr) => {
                 row[index].hl = $highlight_expression;
                 index += 1;
             }
         }
-        'outer: while index < row.len() {
-            let prev_is_sep = index == 0 || is_separator(row[index - 1].chr);
-            if syntax.has_digits && row[index].chr.is_digit(10) && prev_is_sep {
-                while index < row.len() && row[index].chr.is_digit(10) {
-                    update_and_advance!(EditorHighlight::Number);
-                }
-            } else if syntax.quotes.contains(row[index].chr) {
-                let start_quote = row[index].chr;
-                update_and_advance!(EditorHighlight::String);
-                while index < row.len() {
-                    if row[index].chr == start_quote {
-                        update_and_advance!(EditorHighlight::String);
-                        break;
-                    };
-                    if row[index].chr == '\\' && index + 1 < row.len() {
+            'outer: while index < row.len() {
+                let prev_is_sep = index == 0 || is_separator(row[index - 1].chr);
+                if syntax.has_digits && row[index].chr.is_digit(10) && prev_is_sep {
+                    while index < row.len() && row[index].chr.is_digit(10) {
+                        update_and_advance!(EditorHighlight::Number);
+                    }
+                } else if syntax.quotes.contains(row[index].chr) {
+                    let start_quote = row[index].chr;
+                    update_and_advance!(EditorHighlight::String);
+                    while index < row.len() {
+                        if row[index].chr == start_quote {
+                            update_and_advance!(EditorHighlight::String);
+                            break;
+                        };
+                        if row[index].chr == '\\' && index + 1 < row.len() {
+                            update_and_advance!(EditorHighlight::String);
+                        }
                         update_and_advance!(EditorHighlight::String);
                     }
-                    update_and_advance!(EditorHighlight::String);
-                }
-            } else if row_to_string(&row[index..].to_vec())
-                          .starts_with(&syntax.singleline_comment) {
-                while index < row.len() {
-                    update_and_advance!(EditorHighlight::Comment);
-                }
-            } else {
-                if index == 0 || is_separator(row[index - 1].chr) {
-                    let following_string: String = row_to_string(&row[index..].to_vec());
-                    for (kind, keywords) in syntax.keywords.iter().enumerate() {
-                        let highlight = match kind {
-                            0 => EditorHighlight::Keyword1,
-                            1 => EditorHighlight::Keyword2,
-                            2 => EditorHighlight::Keyword3,
-                            3 => EditorHighlight::Keyword4,
-                            _ => panic!("There should only be four things in the list."),
-                        };
-                        for keyword in keywords {
-                            let keyword_end = index + keyword.len();
-                            if following_string.starts_with(keyword) &&
-                               (keyword_end == row.len() || is_separator(row[keyword_end].chr)) {
-                                while index < keyword_end {
-                                    update_and_advance!(highlight);
+                } else if row_to_string(&row[index..].to_vec())
+                              .starts_with(&syntax.singleline_comment) {
+                    while index < row.len() {
+                        update_and_advance!(EditorHighlight::Comment);
+                    }
+                } else {
+                    if index == 0 || is_separator(row[index - 1].chr) {
+                        let following_string: String = row_to_string(&row[index..].to_vec());
+                        for (keywords, &highlight) in
+                            syntax
+                                .keywords
+                                .iter()
+                                .zip([EditorHighlight::Keyword1,
+                                      EditorHighlight::Keyword2,
+                                      EditorHighlight::Keyword3,
+                                      EditorHighlight::Keyword4]
+                                             .iter()) {
+                            for keyword in keywords {
+                                let keyword_end = index + keyword.len();
+                                if following_string.starts_with(keyword) &&
+                                   (keyword_end == row.len() ||
+                                    is_separator(row[keyword_end].chr)) {
+                                    while index < keyword_end {
+                                        update_and_advance!(highlight);
+                                    }
+                                    continue 'outer;
                                 }
-                                continue 'outer;
                             }
                         }
                     }
+                    update_and_advance!(EditorHighlight::Normal);
                 }
-                update_and_advance!(EditorHighlight::Normal);
             }
-        }
-    } else {
-        for cell in row.iter_mut() {
-            cell.hl = EditorHighlight::Normal
+        } else {
+            for cell in row.iter_mut() {
+                cell.hl = EditorHighlight::Normal
+            }
         }
     }
 }
@@ -653,7 +656,7 @@ fn delete_char(editor_config: &mut EditorConfig) {
             let moved_line = editor_config.rows.remove(editor_config.cursor_y);
             let line_to_append = &moved_line[whitespace_depth(&moved_line)..];
             editor_config.rows[editor_config.cursor_y - 1].extend(line_to_append);
-            for row_index in editor_config.cursor_y..editor_config.rows.len() {
+            for row_index in editor_config.cursor_y..editor_config.rows.len() + 1 {
                 if let Some((end, depth)) = editor_config.folds.remove(&row_index) {
                     editor_config
                         .folds
@@ -1056,16 +1059,16 @@ fn prompt(editor_config: &mut EditorConfig,
 }
 
 fn screen_x(editor_config: &EditorConfig) -> usize {
-    if editor_config.cursor_y < editor_config.rows.len() {
-        editor_config.rows[editor_config.cursor_y]
-            .iter()
-            .take(editor_config.cursor_x)
-            .skip(editor_config.col_offset)
-            .map(|cell| if cell.chr == '\t' { TAB_STOP } else { 1 })
-            .sum()
-    } else {
-        0
-    }
+    editor_config
+        .rows
+        .get(editor_config.cursor_y)
+        .map_or(0, |row| {
+            row.iter()
+                .take(editor_config.cursor_x)
+                .skip(editor_config.col_offset)
+                .map(|cell| if cell.chr == '\t' { TAB_STOP } else { 1 })
+                .sum()
+        })
 }
 
 fn screen_y(editor_config: &EditorConfig) -> usize {
@@ -1176,10 +1179,12 @@ fn process_keypress(editor_config: &mut EditorConfig, c: EditorKey) -> bool {
             }
             EditorKey::Verbatim(chr) if chr == '\r' => insert_newline(editor_config),
             EditorKey::Delete => {
-                if !(editor_config
-                         .folds
-                         .contains_key(&(editor_config.cursor_y + 1)) &&
-                     editor_config.cursor_x == editor_config.rows[editor_config.cursor_y].len()) {
+                if editor_config
+                       .folds
+                       .contains_key(&(editor_config.cursor_y + 1)) &&
+                   editor_config.cursor_x == editor_config.rows[editor_config.cursor_y].len() {
+                    set_status_message(editor_config, DONT_EDIT_FOLDS);
+                } else {
                     move_cursor(editor_config, EditorKey::ArrowRight);
                     delete_char(editor_config);
                 }

@@ -5,12 +5,15 @@ use std::time::Instant;
 
 use EditorConfig;
 use EditorKey;
+use ctrl_key;
 use EditorHighlight;
 
 use all_text;
 use load_text;
 use process_keypress;
 use select_syntax;
+use draw_rows;
+use refresh_screen;
 
 use check_consistency;
 
@@ -176,4 +179,31 @@ fn hello_world_highlight() {
     assert!(mock.rows[3]
                 .iter()
                 .all(|cell| cell.hl == EditorHighlight::Normal));
+}
+
+#[test]
+fn fold_last_row_delete() {
+    let text = "a
+b
+ c";
+
+    let mut mock = mock_editor();
+    load_text(&mut mock, text);
+
+    assert_eq!(mock.rows.len(), 3);
+
+    process_keypress(&mut mock, EditorKey::ArrowDown);
+    process_keypress(&mut mock, EditorKey::ArrowDown);
+    assert_eq!(mock.cursor_y, 2);
+    process_keypress(&mut mock, EditorKey::Verbatim(ctrl_key(' ')));
+    process_keypress(&mut mock, EditorKey::ArrowUp);
+    process_keypress(&mut mock, EditorKey::ArrowUp);
+    process_keypress(&mut mock, EditorKey::ArrowRight);
+    assert_eq!(mock.cursor_y, 0);
+    assert_eq!(mock.cursor_x, 1);
+    process_keypress(&mut mock, EditorKey::Delete);
+    assert_eq!(mock.rows.len(), 2);
+    let mut append_buffer = String::new();
+    draw_rows(&mock, &mut append_buffer);
+    refresh_screen(&mut mock)
 }

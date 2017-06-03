@@ -3,6 +3,10 @@ Autocomplete (Maybe too ambitious?)
 Cut, Copy, Paste
 Faster Paste of long lines
 Undo (Maybe too ambitious?)
+Multiline strings & comments (If I care)
+Remove direct array addressing.
+On Ctrl-F after Enter, start with old value.
+Switch to impls.
 
 Done:
 Refresh file (Ctrl-e)
@@ -11,4 +15,4 @@ Delete line (Ctrl-k)
 Go to line (Ctrl-g, prompt)
 Fold the world
 Can create files from scratch
-Ctrl+k deletes line + newlineif used from beginning of line.
+Ctrl+k deletes line + newline if used from beginning of line.

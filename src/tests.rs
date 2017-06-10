@@ -2,13 +2,14 @@
 
 use std::collections::HashMap;
 use std::time::Instant;
+use std::io;
 
 use EditorConfig;
 use EditorKey;
 use ctrl_key;
 use EditorHighlight;
 
-fn mock_editor() -> EditorConfig {
+fn mock_editor() -> EditorConfig<io::Empty> {
     EditorConfig {
         filename: None,
         screen_rows: 10,
@@ -24,6 +25,51 @@ fn mock_editor() -> EditorConfig {
         quit_times: 3,
         syntax: None,
         folds: HashMap::new(),
+        input_source: io::empty(),
+    }
+}
+
+struct FakeStdin {
+    backward_contents: Vec<u8>,
+}
+
+impl io::Read for FakeStdin {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        for i in 0..buf.len() {
+            match self.backward_contents.pop() {
+                Some(b) => buf[i] = b,
+                None => return Ok(i - 1),
+            }
+        }
+        Ok(buf.len())
+    }
+}
+
+impl FakeStdin {
+    fn new(contents: &[u8]) -> FakeStdin {
+        let mut contents = contents.to_owned();
+        contents.reverse();
+        FakeStdin { backward_contents: contents }
+    }
+}
+
+fn mock_editor_with_input(input: &str) -> EditorConfig<FakeStdin> {
+    EditorConfig {
+        filename: None,
+        screen_rows: 10,
+        screen_cols: 10,
+        rows: vec![],
+        row_offset: 0,
+        col_offset: 0,
+        cursor_x: 0,
+        cursor_y: 0,
+        status_message: String::new(),
+        status_message_time: Instant::now(),
+        modified: false,
+        quit_times: 3,
+        syntax: None,
+        folds: HashMap::new(),
+        input_source: FakeStdin::new(input.as_bytes()),
     }
 }
 
@@ -248,4 +294,18 @@ d";
     assert_eq!(None, mock.check_consistency());
     assert_eq!(2, mock.cursor_x);
     assert_eq!(1, mock.cursor_y);
+}
+
+#[test]
+fn read_key_escapes() {
+    let keys = "Hi!\x1b[1~I say \x1b[4~\rOk, bye.\x1b[5~\x1b[7~\x1b[3~We\x11";
+    let mut mock = mock_editor_with_input(keys);
+    while mock.quit_times == 3 {
+        let keypress = mock.read_key();
+        mock.process_keypress(keypress);
+    }
+
+    assert_eq!("We say Hi!
+Ok, bye.",
+               mock.all_text())
 }

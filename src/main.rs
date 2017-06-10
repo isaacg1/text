@@ -61,7 +61,7 @@ const DONT_EDIT_FOLDS: &'static str = "Folded lines can't be edited. Ctrl-Space 
 /// * data **
 type Row = Vec<Cell>;
 
-struct EditorConfig {
+struct EditorConfig<T: Read> {
     cursor_x: usize,
     cursor_y: usize,
     screen_rows: usize,
@@ -76,6 +76,7 @@ struct EditorConfig {
     modified: bool,
     quit_times: usize,
     folds: HashMap<usize, (usize, usize)>,
+    input_source: T,
 }
 
 #[derive(Copy, Clone)]
@@ -166,54 +167,6 @@ fn restore_orig_mode(orig_termios: &Termios) -> io::Result<()> {
     termios::tcsetattr(STDIN, termios::TCSAFLUSH, orig_termios)
 }
 
-fn read_key() -> EditorKey {
-    let mut buffer: [u8; 1] = [0];
-    while io::stdin().read(&mut buffer).expect("Read failure") == 0 {}
-    let c = buffer[0] as char;
-    if c == '\x1b' {
-            let mut escape_buf: [u8; 3] = [0; 3];
-            match io::stdin()
-                      .read(&mut escape_buf)
-                      .expect("Read failure during escape sequence") {
-                2 | 3 => {
-                    if escape_buf[0] as char == '[' {
-                        if escape_buf[2] as char == '~' {
-                            match escape_buf[1] as char {
-                                '1' | '7' => Some(EditorKey::Home),
-                                '3' => Some(EditorKey::Delete),
-                                '4' | '8' => Some(EditorKey::End),
-                                '5' => Some(EditorKey::PageUp),
-                                '6' => Some(EditorKey::PageDown),
-                                _ => None,
-                            }
-                        } else {
-                            match escape_buf[1] as char {
-                                'A' => Some(EditorKey::ArrowUp),
-                                'B' => Some(EditorKey::ArrowDown),
-                                'C' => Some(EditorKey::ArrowRight),
-                                'D' => Some(EditorKey::ArrowLeft),
-                                'H' => Some(EditorKey::Home),
-                                'F' => Some(EditorKey::End),
-                                _ => None,
-                            }
-                        }
-                    } else if escape_buf[0] as char == 'O' {
-                        match escape_buf[1] as char {
-                            'H' => Some(EditorKey::Home),
-                            'F' => Some(EditorKey::End),
-                            _ => None,
-                        }
-                    } else {
-                        None
-                    }
-                }
-                _ => None,
-            }
-        } else {
-            None
-        }
-        .unwrap_or_else(|| EditorKey::Verbatim(c))
-}
 
 /// * syntax highlighting **
 
@@ -244,8 +197,10 @@ fn string_to_row(s: &str) -> Row {
         .collect()
 }
 
-impl EditorConfig {
-    fn new() -> EditorConfig {
+impl<T> EditorConfig<T>
+    where T: io::Read
+{
+    fn new() -> EditorConfig<io::Stdin> {
         let mut ws = libc::winsize {
             ws_row: 0,
             ws_col: 0,
@@ -274,6 +229,7 @@ impl EditorConfig {
                 quit_times: 3,
                 syntax: None,
                 folds: HashMap::new(),
+                input_source: io::stdin(),
             }
         }
     }
@@ -986,14 +942,14 @@ impl EditorConfig {
 
     fn prompt(&mut self,
               prompt: &str,
-              callback: Option<&Fn(&mut EditorConfig, &str, EditorKey) -> ()>)
+              callback: Option<&Fn(&mut EditorConfig<T>, &str, EditorKey) -> ()>)
               -> Option<String> {
         let mut response = String::new();
         loop {
             self.set_status_message(&format!("{}{}", prompt, response));
             self.refresh_screen();
 
-            let c = read_key();
+            let c = self.read_key();
             macro_rules! maybe_callback {
             () => {
                 if let Some(callback) = callback {
@@ -1102,6 +1058,56 @@ impl EditorConfig {
         self.cursor_x = min(self.cursor_x, self.current_row_len());
     }
 
+    fn read_key(&mut self) -> EditorKey {
+        let mut buffer: [u8; 1] = [0];
+        while self.input_source
+                  .read(&mut buffer)
+                  .expect("Read failure") == 0 {}
+        let c = buffer[0] as char;
+        if c == '\x1b' {
+                let mut escape_buf: [u8; 3] = [0; 3];
+                match self.input_source
+                          .read(&mut escape_buf)
+                          .expect("Read failure during escape sequence") {
+                    2 | 3 => {
+                        if escape_buf[0] as char == '[' {
+                            if escape_buf[2] as char == '~' {
+                                match escape_buf[1] as char {
+                                    '1' | '7' => Some(EditorKey::Home),
+                                    '3' => Some(EditorKey::Delete),
+                                    '4' | '8' => Some(EditorKey::End),
+                                    '5' => Some(EditorKey::PageUp),
+                                    '6' => Some(EditorKey::PageDown),
+                                    _ => None,
+                                }
+                            } else {
+                                match escape_buf[1] as char {
+                                    'A' => Some(EditorKey::ArrowUp),
+                                    'B' => Some(EditorKey::ArrowDown),
+                                    'C' => Some(EditorKey::ArrowRight),
+                                    'D' => Some(EditorKey::ArrowLeft),
+                                    'H' => Some(EditorKey::Home),
+                                    'F' => Some(EditorKey::End),
+                                    _ => None,
+                                }
+                            }
+                        } else if escape_buf[0] as char == 'O' {
+                            match escape_buf[1] as char {
+                                'H' => Some(EditorKey::Home),
+                                'F' => Some(EditorKey::End),
+                                _ => None,
+                            }
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                }
+            } else {
+                None
+            }
+            .unwrap_or_else(|| EditorKey::Verbatim(c))
+    }
     // Return value indicates whether we should continue processing keypresses.
     fn process_keypress(&mut self, c: EditorKey) -> bool {
         if c == EditorKey::Verbatim(ctrl_key('q')) {
@@ -1173,7 +1179,7 @@ impl EditorConfig {
 /// * init **
 
 fn run() {
-    let mut editor_config: EditorConfig = EditorConfig::new();
+    let mut editor_config: EditorConfig<io::Stdin> = EditorConfig::<io::Stdin>::new();
     print!("{}", CLEAR_SCREEN);
     if let Some(filename) = env::args().nth(1) {
         editor_config
@@ -1185,7 +1191,8 @@ fn run() {
     loop {
         editor_config.warn_consistency();
         editor_config.refresh_screen();
-        let to_continue = editor_config.process_keypress(read_key());
+        let keypress = editor_config.read_key();
+        let to_continue = editor_config.process_keypress(keypress);
         if !to_continue {
             break;
         }

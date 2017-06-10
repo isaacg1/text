@@ -6,7 +6,7 @@ Undo (Maybe too ambitious?)
 Multiline strings & comments (If I care)
 Remove direct array addressing.
 On Ctrl-F after Enter, start with old value.
-Switch to impls.
+
 
 Done:
 Refresh file (Ctrl-e)
@@ -16,3 +16,4 @@ Go to line (Ctrl-g, prompt)
 Fold the world
 Can create files from scratch
 Ctrl+k deletes line + newline if used from beginning of line.
+Switch to impls.

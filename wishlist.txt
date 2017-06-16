@@ -4,9 +4,6 @@ Cut, Copy, Paste
 Faster Paste of long lines
 Undo (Maybe too ambitious?)
 Multiline strings & comments (If I care)
-Remove direct array addressing.
-On Ctrl-F after Enter, start with old value.
-
 
 Done:
 Refresh file (Ctrl-e)
@@ -17,3 +14,5 @@ Fold the world
 Can create files from scratch
 Ctrl+k deletes line + newline if used from beginning of line.
 Switch to impls.
+Remove direct array addressing.
+On Ctrl-F after Enter, start with old value.

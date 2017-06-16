@@ -77,6 +77,7 @@ struct EditorConfig<T: Read> {
     quit_times: usize,
     folds: HashMap<usize, (usize, usize)>,
     input_source: T,
+    saved_search: String,
 }
 
 #[derive(Copy, Clone)]
@@ -230,6 +231,7 @@ impl<T> EditorConfig<T>
                 syntax: None,
                 folds: HashMap::new(),
                 input_source: io::stdin(),
+                saved_search: String::new(),
             }
         }
     }
@@ -670,7 +672,7 @@ impl<T> EditorConfig<T>
         let filename = if let Some(ref filename) = self.filename {
             filename.clone()
         } else {
-            match self.prompt("Save as: ", None) {
+            match self.prompt("Save as: ", "", None) {
                 None => {
                     self.set_status_message("Save aborted");
                     return Ok(());
@@ -755,20 +757,28 @@ impl<T> EditorConfig<T>
         let saved_row_offset = self.row_offset;
         let saved_folds = self.folds.clone();
 
+        let saved_search = self.saved_search.to_owned();
+
         let query = self.prompt("Search (ESC/Arrows/Enter): ",
+                                &saved_search,
                                 Some(&|ed, query, key| ed.find_callback(query, key)));
 
-        if query.is_none() {
-            self.cursor_x = saved_cursor_x;
-            self.cursor_y = saved_cursor_y;
-            self.col_offset = saved_col_offset;
-            self.row_offset = saved_row_offset;
-            self.folds = saved_folds;
+        match query {
+            None => {
+                self.cursor_x = saved_cursor_x;
+                self.cursor_y = saved_cursor_y;
+                self.col_offset = saved_col_offset;
+                self.row_offset = saved_row_offset;
+                self.folds = saved_folds;
+            }
+            Some(search) => {
+                self.saved_search = search.clone();
+            }
         }
     }
 
     fn go_to(&mut self) {
-        if let Some(response) = self.prompt("Go to line: ", None) {
+        if let Some(response) = self.prompt("Go to line: ", "", None) {
             match response.parse::<usize>() {
                 Ok(line) => {
                     if 0 < line && line - 1 <= self.rows.len() {
@@ -942,9 +952,10 @@ impl<T> EditorConfig<T>
 
     fn prompt(&mut self,
               prompt: &str,
+              initial_response: &str,
               callback: Option<&Fn(&mut EditorConfig<T>, &str, EditorKey) -> ()>)
               -> Option<String> {
-        let mut response = String::new();
+        let mut response: String = initial_response.to_owned();
         loop {
             self.set_status_message(&format!("{}{}", prompt, response));
             self.refresh_screen();

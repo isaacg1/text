@@ -1113,7 +1113,7 @@ impl<T> EditorConfig<T>
         if c == EditorKey::Verbatim(ctrl_key('q')) {
             if self.modified && self.quit_times > 0 {
                 let quit_times = self.quit_times;
-                self.set_status_message(&format!("Warning: File has unsaved changes.\
+                self.set_status_message(&format!("Warning: File has unsaved changes. \
                                                        Ctrl-S to save, or press Ctrl-Q \
                                                        {} more times to quit.",
                                                  quit_times));

@@ -26,7 +26,6 @@ fn mock_editor() -> EditorConfig<io::Empty> {
         syntax: None,
         folds: HashMap::new(),
         input_source: io::empty(),
-        saved_search: String::new(),
     }
 }
 
@@ -71,7 +70,6 @@ fn mock_editor_with_input(input: &str) -> EditorConfig<FakeStdin> {
         syntax: None,
         folds: HashMap::new(),
         input_source: FakeStdin::new(input.as_bytes()),
-        saved_search: String::new(),
     }
 }
 

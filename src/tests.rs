@@ -188,34 +188,34 @@ fn hello_world_highlight() {
     mock.load_text(text);
 
     assert_eq!(mock.rows.len(), 4);
-    assert!(mock.rows[0][..2]
+    assert!(mock.rows[0].cells[..2]
                 .iter()
                 .all(|cell| cell.hl == EditorHighlight::Keyword1));
-    assert!(mock.rows[0][2..]
+    assert!(mock.rows[0].cells[2..]
                 .iter()
                 .all(|cell| cell.hl == EditorHighlight::Normal));
-    assert!(mock.rows[1][..13]
+    assert!(mock.rows[1].cells[..13]
                 .iter()
                 .all(|cell| cell.hl == EditorHighlight::Normal));
-    assert!(mock.rows[1][13..30]
+    assert!(mock.rows[1].cells[13..30]
                 .iter()
                 .all(|cell| cell.hl == EditorHighlight::String));
-    assert!(mock.rows[1][30..]
+    assert!(mock.rows[1].cells[30..]
                 .iter()
                 .all(|cell| cell.hl == EditorHighlight::Normal));
-    assert!(mock.rows[2][..4]
+    assert!(mock.rows[2].cells[..4]
                 .iter()
                 .all(|cell| cell.hl == EditorHighlight::Normal));
-    assert!(mock.rows[2][4..7]
+    assert!(mock.rows[2].cells[4..7]
                 .iter()
                 .all(|cell| cell.hl == EditorHighlight::Number));
-    assert!(mock.rows[2][7..8]
+    assert!(mock.rows[2].cells[7..8]
                 .iter()
                 .all(|cell| cell.hl == EditorHighlight::Normal));
-    assert!(mock.rows[2][8..]
+    assert!(mock.rows[2].cells[8..]
                 .iter()
                 .all(|cell| cell.hl == EditorHighlight::Comment));
-    assert!(mock.rows[3]
+    assert!(mock.rows[3].cells
                 .iter()
                 .all(|cell| cell.hl == EditorHighlight::Normal));
 }

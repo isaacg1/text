@@ -59,7 +59,11 @@ const CLEAR_SCREEN: &'static str = "\x1b[2J";
 const DONT_EDIT_FOLDS: &'static str = "Folded lines can't be edited. Ctrl-Space to unfold.";
 
 /// * data **
-type Row = Vec<Cell>;
+#[derive(Clone)]
+struct Row {
+    cells: Vec<Cell>,
+    open_quote: Option<char>,
+}
 
 struct EditorConfig<T: Read> {
     cursor_x: usize,
@@ -175,27 +179,35 @@ fn is_separator(c: char) -> bool {
     c.is_whitespace() || "&{}'\",.()+-/*=~%<>[];:".contains(c)
 }
 
-fn whitespace_depth(row: &[Cell]) -> usize {
-    row.iter()
+fn whitespace_depth(row: &Row) -> usize {
+    row.cells
+        .iter()
         .position(|cell| !cell.chr.is_whitespace())
-        .unwrap_or_else(|| row.len())
+        .unwrap_or_else(|| row.cells.len())
 }
 
 /// * row operations **
 
-fn row_to_string(row: &[Cell]) -> String {
-    row.iter().map(|&cell| cell.chr).collect::<String>()
+fn row_to_string(row: &Row) -> String {
+    cells_to_string(&row.cells)
+}
+
+fn cells_to_string(cells: &[Cell]) -> String {
+    cells.iter().map(|&cell| cell.chr).collect::<String>()
 }
 
 fn string_to_row(s: &str) -> Row {
-    s.chars()
-        .map(|c| {
-                 Cell {
-                     chr: c,
-                     hl: EditorHighlight::Normal,
-                 }
-             })
-        .collect()
+    Row {
+        cells: s.chars()
+            .map(|c| {
+                     Cell {
+                         chr: c,
+                         hl: EditorHighlight::Normal,
+                     }
+                 })
+            .collect(),
+        open_quote: None,
+    }
 }
 
 impl<T> EditorConfig<T>
@@ -299,7 +311,7 @@ impl<T> EditorConfig<T>
                         .enumerate()
                         .skip(index + 1)
                         .position(|(oth_index, row)| {
-                                      whitespace_depth(row) < depth && !row.is_empty() ||
+                                      whitespace_depth(row) < depth && !row.cells.is_empty() ||
                                       self.folds.contains_key(&oth_index)
                                   })
                         .map_or(self.rows.len() - 1, |offset| index + offset);
@@ -320,12 +332,12 @@ impl<T> EditorConfig<T>
                 .iter()
                 .rev()
                 .skip(self.rows.len() - self.cursor_y)
-                .position(|row| whitespace_depth(row) < fold_depth && !row.is_empty())
+                .position(|row| whitespace_depth(row) < fold_depth && !row.cells.is_empty())
                 .map_or(0, |reverse_offset| self.cursor_y - reverse_offset);
             let end = self.rows
                 .iter()
                 .skip(self.cursor_y + 1)
-                .position(|row| whitespace_depth(row) < fold_depth && !row.is_empty())
+                .position(|row| whitespace_depth(row) < fold_depth && !row.cells.is_empty())
                 .map_or(self.rows.len() - 1, |offset| self.cursor_y + offset);
             self.folds.insert(start, (end, fold_depth));
             self.cursor_y = start;
@@ -363,47 +375,47 @@ impl<T> EditorConfig<T>
     /// * row operations **
 
     fn current_row_len(&self) -> usize {
-        self.rows.get(self.cursor_y).map_or(0, |row| row.len())
+        self.rows.get(self.cursor_y).map_or(0, |row| row.cells.len())
     }
-
 
     fn update_row_highlights(&mut self, row_index: usize) {
         if let Some(mut row) = self.rows.get_mut(row_index) {
             if let Some(ref syntax) = self.syntax {
+                let mut cells = &mut row.cells;
                 let mut index = 0;
                 macro_rules! update_and_advance {
-            ($highlight_expression:expr) => {
-                row[index].hl = $highlight_expression;
-                index += 1;
-            }
-        }
-                'outer: while index < row.len() {
-                    let prev_is_sep = index == 0 || is_separator(row[index - 1].chr);
-                    if syntax.has_digits && row[index].chr.is_digit(10) && prev_is_sep {
-                        while index < row.len() && row[index].chr.is_digit(10) {
+                    ($highlight_expression:expr) => {
+                        cells[index].hl = $highlight_expression;
+                        index += 1;
+                    }
+                }
+                'outer: while index < cells.len() {
+                    let prev_is_sep = index == 0 || is_separator(cells[index - 1].chr);
+                    if syntax.has_digits && cells[index].chr.is_digit(10) && prev_is_sep {
+                        while index < cells.len() && cells[index].chr.is_digit(10) {
                             update_and_advance!(EditorHighlight::Number);
                         }
-                    } else if syntax.quotes.contains(row[index].chr) {
-                        let start_quote = row[index].chr;
+                    } else if syntax.quotes.contains(cells[index].chr) {
+                        let start_quote = cells[index].chr;
                         update_and_advance!(EditorHighlight::String);
-                        while index < row.len() {
-                            if row[index].chr == start_quote {
+                        while index < cells.len() {
+                            if cells[index].chr == start_quote {
                                 update_and_advance!(EditorHighlight::String);
                                 break;
                             };
-                            if row[index].chr == '\\' && index + 1 < row.len() {
+                            if cells[index].chr == '\\' && index + 1 < cells.len() {
                                 update_and_advance!(EditorHighlight::String);
                             }
                             update_and_advance!(EditorHighlight::String);
                         }
-                    } else if row_to_string(&row[index..].to_vec())
+                    } else if cells_to_string(&cells[index..].to_vec())
                                   .starts_with(&syntax.singleline_comment) {
-                        while index < row.len() {
+                        while index < cells.len() {
                             update_and_advance!(EditorHighlight::Comment);
                         }
                     } else {
-                        if index == 0 || is_separator(row[index - 1].chr) {
-                            let following_string: String = row_to_string(&row[index..].to_vec());
+                        if index == 0 || is_separator(cells[index - 1].chr) {
+                            let following_string: String = cells_to_string(&cells[index..].to_vec());
                             for (keywords, &highlight) in
                                 syntax
                                     .keywords
@@ -416,8 +428,8 @@ impl<T> EditorConfig<T>
                                 for keyword in keywords {
                                     let keyword_end = index + keyword.len();
                                     if following_string.starts_with(keyword) &&
-                                       (keyword_end == row.len() ||
-                                        is_separator(row[keyword_end].chr)) {
+                                       (keyword_end == cells.len() ||
+                                        is_separator(cells[keyword_end].chr)) {
                                         while index < keyword_end {
                                             update_and_advance!(highlight);
                                         }
@@ -430,7 +442,7 @@ impl<T> EditorConfig<T>
                     }
                 }
             } else {
-                for cell in row.iter_mut() {
+                for cell in row.cells.iter_mut() {
                     cell.hl = EditorHighlight::Normal
                 }
             }
@@ -526,13 +538,19 @@ impl<T> EditorConfig<T>
 
     fn insert_char(&mut self, c: char) {
         if self.cursor_y == self.rows.len() {
-            self.rows.push(Vec::new());
+            self.rows
+                .push(Row {
+                          cells: Vec::new(),
+                          open_quote: None,
+                      });
         }
-        self.rows[self.cursor_y].insert(self.cursor_x,
-                                        Cell {
-                                            chr: c,
-                                            hl: EditorHighlight::Normal,
-                                        });
+        self.rows[self.cursor_y]
+            .cells
+            .insert(self.cursor_x,
+                    Cell {
+                        chr: c,
+                        hl: EditorHighlight::Normal,
+                    });
         let index = self.cursor_y;
         self.update_row_highlights(index);
         self.cursor_x += 1;
@@ -540,16 +558,28 @@ impl<T> EditorConfig<T>
     }
 
     fn insert_newline(&mut self) {
+        let open_quote = if let Some(prev_y) = self.cursor_y.checked_sub(1) {
+            self.rows[prev_y].open_quote
+        } else {
+            None
+        };
+
         if self.cursor_y < self.rows.len() {
             let depth = whitespace_depth(&self.rows[self.cursor_y]);
             // If in the whitespace, insert blank line.
             if depth >= self.cursor_x {
-                self.rows.insert(self.cursor_y, vec![]);
+                self.rows
+                    .insert(self.cursor_y,
+                            Row {
+                                cells: vec![],
+                                open_quote: open_quote,
+                            });
             } else {
-                let mut next_row = self.rows[self.cursor_y][..depth].to_vec();
+                let cells_end = self.rows[self.cursor_y].cells.split_off(self.cursor_x);
+                let mut next_row = self.rows[self.cursor_y].clone();
 
-                let row_end = self.rows[self.cursor_y].split_off(self.cursor_x);
-                next_row.extend(row_end);
+                next_row.cells = next_row.cells[..depth].to_vec();
+                next_row.cells.extend(cells_end);
                 self.rows.insert(self.cursor_y + 1, next_row);
             }
             for row_index in (self.cursor_y..self.rows.len()).rev() {
@@ -563,8 +593,11 @@ impl<T> EditorConfig<T>
 
             self.cursor_x = depth;
         } else {
-            self.rows.push(Vec::new());
-            self.cursor_x = 0;
+            self.rows
+                .push(Row {
+                          cells: vec![],
+                          open_quote: open_quote,
+                      })
         }
         self.cursor_y += 1;
         self.modified = true;
@@ -584,7 +617,7 @@ impl<T> EditorConfig<T>
                 self.rows.remove(self.cursor_y);
                 self.shift_folds_back();
             } else {
-                self.rows[self.cursor_y].truncate(self.cursor_x);
+                self.rows[self.cursor_y].cells.truncate(self.cursor_x);
                 let index = self.cursor_y;
                 self.update_row_highlights(index);
             }
@@ -594,7 +627,7 @@ impl<T> EditorConfig<T>
 
     fn delete_char(&mut self) {
         if let Some(prev_x) = self.cursor_x.checked_sub(1) {
-            self.rows[self.cursor_y].remove(prev_x);
+            self.rows[self.cursor_y].cells.remove(prev_x);
             let index = self.cursor_y;
             self.update_row_highlights(index);
             self.cursor_x = prev_x;
@@ -605,10 +638,11 @@ impl<T> EditorConfig<T>
                    .any(|&(end, _)| end == self.cursor_y - 1) {
                 self.set_status_message(DONT_EDIT_FOLDS);
             } else {
-                self.cursor_x = self.rows[self.cursor_y - 1].len();
+                self.cursor_x = self.rows[self.cursor_y - 1].cells.len();
                 let moved_line = self.rows.remove(self.cursor_y);
-                let line_to_append = &moved_line[whitespace_depth(&moved_line)..];
-                self.rows[self.cursor_y - 1].extend(line_to_append);
+                let line_to_append = &moved_line.cells[whitespace_depth(&moved_line)..];
+                self.rows[self.cursor_y - 1].cells.extend(line_to_append);
+                self.rows[self.cursor_y - 1].open_quote = moved_line.open_quote;
                 self.shift_folds_back();
                 self.cursor_y -= 1;
                 let index = self.cursor_y;
@@ -663,7 +697,7 @@ impl<T> EditorConfig<T>
     fn all_text(&self) -> String {
         self.rows
             .iter()
-            .map(|row| row_to_string(row.as_slice()))
+            .map(|row| row_to_string(row))
             .collect::<Vec<_>>()
             .join("\n")
     }
@@ -741,6 +775,7 @@ impl<T> EditorConfig<T>
                 self.cursor_x = match_index;
                 self.row_offset = self.rows.len();
                 for cell in self.rows[match_line]
+                        .cells
                         .iter_mut()
                         .skip(match_index)
                         .take(query.len()) {
@@ -812,16 +847,22 @@ impl<T> EditorConfig<T>
         let mut file_row = self.row_offset;
         while screen_y < self.screen_rows {
             if let Some(&(fold_end, fold_depth)) = self.folds.get(&file_row) {
-                let row = &self.rows[file_row];
-                let fold_white = if fold_depth < row.len() {
-                    row[..fold_depth].to_vec()
+                let cells = &self.rows[file_row].cells;
+                let fold_white = if fold_depth < cells.len() {
+                    Row {
+                        cells: cells[..fold_depth].to_vec(),
+                        open_quote: None,
+                    }
                 } else {
                     string_to_row(&" ".repeat(fold_depth))
                 };
-                let fold_white_visible = if self.col_offset < fold_white.len() {
-                    fold_white[self.col_offset..].to_vec()
-                } else {
-                    vec![]
+                let fold_white_visible = Row {
+                    cells: if self.col_offset < fold_white.cells.len() {
+                        fold_white.cells[self.col_offset..].to_vec()
+                    } else {
+                        vec![]
+                    },
+                    open_quote: None,
                 };
                 let mut fold_white_str = row_to_string(&fold_white_visible).replace("\t", tab);
                 let fold_msg = format!("{} lines folded.", fold_end - file_row + 1);
@@ -835,11 +876,11 @@ impl<T> EditorConfig<T>
                 append_buffer.push_str(REVERT_COLORS);
                 file_row = fold_end + 1;
             } else if file_row < self.rows.len() {
-                let current_row = &self.rows[file_row];
-                if self.col_offset < current_row.len() {
+                let current_cells = &self.rows[file_row].cells;
+                if self.col_offset < current_cells.len() {
                     let mut current_hl = EditorHighlight::Normal;
                     let mut chars_written = 0;
-                    for &Cell { chr, hl } in current_row.iter().skip(self.col_offset) {
+                    for &Cell { chr, hl } in current_cells.iter().skip(self.col_offset) {
                         if hl != current_hl {
                             current_hl = hl;
                             append_buffer.push_str(&hl.color());
@@ -905,7 +946,9 @@ impl<T> EditorConfig<T>
                                        self.cursor_y + 1,
                                        self.rows.len(),
                                        self.cursor_x + 1,
-                                       self.rows.get(self.cursor_y).map_or(0, |row| row.len()));
+                                       self.rows
+                                           .get(self.cursor_y)
+                                           .map_or(0, |row| row.cells.len()));
         right_status.truncate(self.screen_cols.saturating_sub(status.len() + 1));
         append_buffer.push_str(&" ".repeat(self.screen_cols
                                                .saturating_sub(status.len() +
@@ -1004,7 +1047,8 @@ impl<T> EditorConfig<T>
         self.rows
             .get(self.cursor_y)
             .map_or(0, |row| {
-                row.iter()
+                row.cells
+                    .iter()
                     .take(self.cursor_x)
                     .skip(self.col_offset)
                     .map(|cell| if cell.chr == '\t' { TAB_STOP } else { 1 })
@@ -1168,7 +1212,7 @@ impl<T> EditorConfig<T>
                 EditorKey::Verbatim(chr) if chr == '\r' => self.insert_newline(),
                 EditorKey::Delete => {
                     if self.folds.contains_key(&(self.cursor_y + 1)) &&
-                       self.cursor_x == self.rows[self.cursor_y].len() {
+                       self.cursor_x == self.rows[self.cursor_y].cells.len() {
                         self.set_status_message(DONT_EDIT_FOLDS);
                     } else {
                         self.move_cursor(EditorKey::ArrowRight);

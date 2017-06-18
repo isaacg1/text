@@ -198,6 +198,67 @@ fn string_to_row(s: &str) -> Row {
         .collect()
 }
 
+impl EditorSyntax {
+    fn update_row(&self, row: &mut [Cell]) {
+        let mut index = 0;
+        macro_rules! update_and_advance {
+            ($highlight_expression:expr) => {
+                row[index].hl = $highlight_expression;
+                index += 1;
+            }
+        }
+        'outer: while index < row.len() {
+            let prev_is_sep = index == 0 || is_separator(row[index - 1].chr);
+            if self.has_digits && row[index].chr.is_digit(10) && prev_is_sep {
+                while index < row.len() && row[index].chr.is_digit(10) {
+                    update_and_advance!(EditorHighlight::Number);
+                }
+            } else if self.quotes.contains(row[index].chr) {
+                let start_quote = row[index].chr;
+                update_and_advance!(EditorHighlight::String);
+                while index < row.len() {
+                    if row[index].chr == start_quote {
+                        update_and_advance!(EditorHighlight::String);
+                        break;
+                    };
+                    if row[index].chr == '\\' && index + 1 < row.len() {
+                        update_and_advance!(EditorHighlight::String);
+                    }
+                    update_and_advance!(EditorHighlight::String);
+                }
+            } else if row_to_string(&row[index..].to_vec()).starts_with(&self.singleline_comment) {
+                while index < row.len() {
+                    update_and_advance!(EditorHighlight::Comment);
+                }
+            } else {
+                if index == 0 || is_separator(row[index - 1].chr) {
+                    let following_string: String = row_to_string(&row[index..].to_vec());
+                    for (keywords, &highlight) in
+                        self.keywords
+                            .iter()
+                            .zip([EditorHighlight::Keyword1,
+                                  EditorHighlight::Keyword2,
+                                  EditorHighlight::Keyword3,
+                                  EditorHighlight::Keyword4]
+                                         .iter()) {
+                        for keyword in keywords {
+                            let keyword_end = index + keyword.len();
+                            if following_string.starts_with(keyword) &&
+                               (keyword_end == row.len() || is_separator(row[keyword_end].chr)) {
+                                while index < keyword_end {
+                                    update_and_advance!(highlight);
+                                }
+                                continue 'outer;
+                            }
+                        }
+                    }
+                }
+                update_and_advance!(EditorHighlight::Normal);
+            }
+        }
+    }
+}
+
 impl<T> EditorConfig<T>
     where T: io::Read
 {
@@ -370,65 +431,7 @@ impl<T> EditorConfig<T>
     fn update_row_highlights(&mut self, row_index: usize) {
         if let Some(mut row) = self.rows.get_mut(row_index) {
             if let Some(ref syntax) = self.syntax {
-                let mut index = 0;
-                macro_rules! update_and_advance {
-            ($highlight_expression:expr) => {
-                row[index].hl = $highlight_expression;
-                index += 1;
-            }
-        }
-                'outer: while index < row.len() {
-                    let prev_is_sep = index == 0 || is_separator(row[index - 1].chr);
-                    if syntax.has_digits && row[index].chr.is_digit(10) && prev_is_sep {
-                        while index < row.len() && row[index].chr.is_digit(10) {
-                            update_and_advance!(EditorHighlight::Number);
-                        }
-                    } else if syntax.quotes.contains(row[index].chr) {
-                        let start_quote = row[index].chr;
-                        update_and_advance!(EditorHighlight::String);
-                        while index < row.len() {
-                            if row[index].chr == start_quote {
-                                update_and_advance!(EditorHighlight::String);
-                                break;
-                            };
-                            if row[index].chr == '\\' && index + 1 < row.len() {
-                                update_and_advance!(EditorHighlight::String);
-                            }
-                            update_and_advance!(EditorHighlight::String);
-                        }
-                    } else if row_to_string(&row[index..].to_vec())
-                                  .starts_with(&syntax.singleline_comment) {
-                        while index < row.len() {
-                            update_and_advance!(EditorHighlight::Comment);
-                        }
-                    } else {
-                        if index == 0 || is_separator(row[index - 1].chr) {
-                            let following_string: String = row_to_string(&row[index..].to_vec());
-                            for (keywords, &highlight) in
-                                syntax
-                                    .keywords
-                                    .iter()
-                                    .zip([EditorHighlight::Keyword1,
-                                          EditorHighlight::Keyword2,
-                                          EditorHighlight::Keyword3,
-                                          EditorHighlight::Keyword4]
-                                                 .iter()) {
-                                for keyword in keywords {
-                                    let keyword_end = index + keyword.len();
-                                    if following_string.starts_with(keyword) &&
-                                       (keyword_end == row.len() ||
-                                        is_separator(row[keyword_end].chr)) {
-                                        while index < keyword_end {
-                                            update_and_advance!(highlight);
-                                        }
-                                        continue 'outer;
-                                    }
-                                }
-                            }
-                        }
-                        update_and_advance!(EditorHighlight::Normal);
-                    }
-                }
+                syntax.update_row(row)
             } else {
                 for cell in row.iter_mut() {
                     cell.hl = EditorHighlight::Normal

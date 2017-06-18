@@ -90,7 +90,7 @@ struct Cell {
     hl: EditorHighlight,
 }
 
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 enum EditorHighlight {
     Normal,
     Number,
@@ -405,12 +405,16 @@ impl<T> EditorConfig<T>
     }
 
     fn update_row_highlights(&mut self, row_index: usize) {
-        let maybe_open_quote: Option<char> = row_index
+        let prev_open_quote: Option<char> = row_index
             .checked_sub(1)
             .and_then(|prev_index| self.rows.get(prev_index))
             .and_then(|prev_row| prev_row.open_quote);
+        let mut update_next = false;
         if let Some(mut row) = self.rows.get_mut(row_index) {
             if let Some(ref syntax) = self.syntax {
+                if row.open_quote.is_some() {
+                    update_next = true;
+                }
                 row.open_quote = None;
                 let mut cells = &mut row.cells;
                 let mut index = 0;
@@ -422,12 +426,13 @@ impl<T> EditorConfig<T>
                 }
                 'outer: while index < cells.len() {
                     let prev_is_sep = index == 0 || is_separator(cells[index - 1].chr);
-                    if index == 0 && maybe_open_quote.is_some() {
-                        let open_quote = maybe_open_quote.expect("Just checked_it");
+                    if index == 0 && prev_open_quote.is_some() {
+                        let active_quote = prev_open_quote.expect("Just checked_it");
                         index =
-                            EditorConfig::<T>::update_highlights_string(cells, open_quote, index);
+                            EditorConfig::<T>::update_highlights_string(cells, active_quote, index);
                         if index >= cells.len() {
-                            row.open_quote = Some(open_quote)
+                            row.open_quote = Some(active_quote);
+                            update_next = true;
                         }
                     } else if syntax.quotes.contains(cells[index].chr) {
                         let start_quote = cells[index].chr;
@@ -435,7 +440,8 @@ impl<T> EditorConfig<T>
                         index =
                             EditorConfig::<T>::update_highlights_string(cells, start_quote, index);
                         if index >= cells.len() {
-                            row.open_quote = Some(start_quote)
+                            row.open_quote = Some(start_quote);
+                            update_next = true;
                         }
                     } else if syntax.has_digits && cells[index].chr.is_digit(10) && prev_is_sep {
                         while index < cells.len() && cells[index].chr.is_digit(10) {
@@ -481,7 +487,7 @@ impl<T> EditorConfig<T>
                 }
             }
         }
-        if row_index < self.rows.len() && self.rows[row_index].open_quote.is_some() {
+        if row_index < self.rows.len() && update_next {
             self.update_row_highlights(row_index + 1);
         }
     }

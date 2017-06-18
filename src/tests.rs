@@ -251,6 +251,23 @@ fn multiline_string_highlight() {
                 .iter()
                 .all(|cell| cell.hl == EditorHighlight::Normal));
 }
+
+#[test]
+fn temporary_multiline_string() {
+    let text = "\"
+a";
+
+    let mut mock = mock_editor();
+    mock.filename = Some("main.rs".to_string());
+    mock.select_syntax();
+
+    mock.load_text(text);
+
+    assert_eq!(mock.rows[1].cells[0].hl, EditorHighlight::String);
+    mock.process_keypress(EditorKey::Delete);
+    assert_eq!(mock.rows[1].cells[0].hl, EditorHighlight::Normal);
+}
+
 #[test]
 fn fold_last_row_delete_char() {
     let text = "a

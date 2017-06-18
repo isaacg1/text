@@ -375,12 +375,43 @@ impl<T> EditorConfig<T>
     /// * row operations **
 
     fn current_row_len(&self) -> usize {
-        self.rows.get(self.cursor_y).map_or(0, |row| row.cells.len())
+        self.rows
+            .get(self.cursor_y)
+            .map_or(0, |row| row.cells.len())
+    }
+
+    // Assumes that index is past the open quote, returns final position of index,
+    // Which is past the last cell iff the string is still open.
+    fn update_highlights_string(cells: &mut [Cell], start_quote: char, index: usize) -> usize {
+        let mut index = index;
+        macro_rules! update_and_advance {
+            ($highlight_expression:expr) => {
+                 cells[index].hl = $highlight_expression;
+                 index += 1;
+            }
+        }
+
+        while index < cells.len() {
+            if cells[index].chr == start_quote {
+                update_and_advance!(EditorHighlight::String);
+                break;
+            }
+            if cells[index].chr == '\\' && index + 1 < cells.len() {
+                update_and_advance!(EditorHighlight::String);
+            }
+            update_and_advance!(EditorHighlight::String);
+        }
+        index
     }
 
     fn update_row_highlights(&mut self, row_index: usize) {
+        let maybe_open_quote: Option<char> = row_index
+            .checked_sub(1)
+            .and_then(|prev_index| self.rows.get(prev_index))
+            .and_then(|prev_row| prev_row.open_quote);
         if let Some(mut row) = self.rows.get_mut(row_index) {
             if let Some(ref syntax) = self.syntax {
+                row.open_quote = None;
                 let mut cells = &mut row.cells;
                 let mut index = 0;
                 macro_rules! update_and_advance {
@@ -391,22 +422,24 @@ impl<T> EditorConfig<T>
                 }
                 'outer: while index < cells.len() {
                     let prev_is_sep = index == 0 || is_separator(cells[index - 1].chr);
-                    if syntax.has_digits && cells[index].chr.is_digit(10) && prev_is_sep {
-                        while index < cells.len() && cells[index].chr.is_digit(10) {
-                            update_and_advance!(EditorHighlight::Number);
+                    if index == 0 && maybe_open_quote.is_some() {
+                        let open_quote = maybe_open_quote.expect("Just checked_it");
+                        index =
+                            EditorConfig::<T>::update_highlights_string(cells, open_quote, index);
+                        if index >= cells.len() {
+                            row.open_quote = Some(open_quote)
                         }
                     } else if syntax.quotes.contains(cells[index].chr) {
                         let start_quote = cells[index].chr;
                         update_and_advance!(EditorHighlight::String);
-                        while index < cells.len() {
-                            if cells[index].chr == start_quote {
-                                update_and_advance!(EditorHighlight::String);
-                                break;
-                            };
-                            if cells[index].chr == '\\' && index + 1 < cells.len() {
-                                update_and_advance!(EditorHighlight::String);
-                            }
-                            update_and_advance!(EditorHighlight::String);
+                        index =
+                            EditorConfig::<T>::update_highlights_string(cells, start_quote, index);
+                        if index >= cells.len() {
+                            row.open_quote = Some(start_quote)
+                        }
+                    } else if syntax.has_digits && cells[index].chr.is_digit(10) && prev_is_sep {
+                        while index < cells.len() && cells[index].chr.is_digit(10) {
+                            update_and_advance!(EditorHighlight::Number);
                         }
                     } else if cells_to_string(&cells[index..].to_vec())
                                   .starts_with(&syntax.singleline_comment) {
@@ -415,7 +448,8 @@ impl<T> EditorConfig<T>
                         }
                     } else {
                         if index == 0 || is_separator(cells[index - 1].chr) {
-                            let following_string: String = cells_to_string(&cells[index..].to_vec());
+                            let following_string: String = cells_to_string(&cells[index..]
+                                                                                .to_vec());
                             for (keywords, &highlight) in
                                 syntax
                                     .keywords
@@ -446,6 +480,9 @@ impl<T> EditorConfig<T>
                     cell.hl = EditorHighlight::Normal
                 }
             }
+        }
+        if row_index < self.rows.len() && self.rows[row_index].open_quote.is_some() {
+            self.update_row_highlights(row_index + 1);
         }
     }
 

@@ -215,11 +215,42 @@ fn hello_world_highlight() {
     assert!(mock.rows[2].cells[8..]
                 .iter()
                 .all(|cell| cell.hl == EditorHighlight::Comment));
-    assert!(mock.rows[3].cells
+    assert!(mock.rows[3]
+                .cells
                 .iter()
                 .all(|cell| cell.hl == EditorHighlight::Normal));
 }
 
+#[test]
+fn multiline_string_highlight() {
+    let text = "Outside \"Inside
+    Middle
+    End\" Done";
+
+    let mut mock = mock_editor();
+    mock.filename = Some("main.rs".to_string());
+    mock.select_syntax();
+
+    mock.load_text(text);
+
+    assert_eq!(mock.rows.len(), 3);
+    assert!(mock.rows[0].cells[..8]
+                .iter()
+                .all(|cell| cell.hl == EditorHighlight::Normal));
+    assert!(mock.rows[0].cells[8..]
+                .iter()
+                .all(|cell| cell.hl == EditorHighlight::String));
+    assert!(mock.rows[1]
+                .cells
+                .iter()
+                .all(|cell| cell.hl == EditorHighlight::String));
+    assert!(mock.rows[2].cells[..8]
+                .iter()
+                .all(|cell| cell.hl == EditorHighlight::String));
+    assert!(mock.rows[2].cells[8..]
+                .iter()
+                .all(|cell| cell.hl == EditorHighlight::Normal));
+}
 #[test]
 fn fold_last_row_delete_char() {
     let text = "a

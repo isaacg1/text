@@ -4,6 +4,7 @@ Cut, Copy, Paste
 Faster Paste of long lines
 Undo (Maybe too ambitious?)
 Multiline strings & comments (If I care)
+Autointent/Dedent chars
 
 Done:
 Refresh file (Ctrl-e)

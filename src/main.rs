@@ -417,68 +417,78 @@ impl<T> EditorConfig<T>
                 }
                 row.open_quote = None;
                 let mut cells = &mut row.cells;
-                let mut index = 0;
-                macro_rules! update_and_advance {
+                if cells.len() == 0 {
+                    row.open_quote = prev_open_quote;
+                    if prev_open_quote.is_some() {
+                        update_next = true;
+                    }
+                } else {
+                    let mut index = 0;
+                    macro_rules! update_and_advance {
                     ($highlight_expression:expr) => {
                         cells[index].hl = $highlight_expression;
                         index += 1;
                     }
                 }
-                'outer: while index < cells.len() {
-                    let prev_is_sep = index == 0 || is_separator(cells[index - 1].chr);
-                    if index == 0 && prev_open_quote.is_some() {
-                        let active_quote = prev_open_quote.expect("Just checked_it");
-                        index =
-                            EditorConfig::<T>::update_highlights_string(cells, active_quote, index);
-                        if index >= cells.len() {
-                            row.open_quote = Some(active_quote);
-                            update_next = true;
-                        }
-                    } else if syntax.quotes.contains(cells[index].chr) {
-                        let start_quote = cells[index].chr;
-                        update_and_advance!(EditorHighlight::String);
-                        index =
-                            EditorConfig::<T>::update_highlights_string(cells, start_quote, index);
-                        if index >= cells.len() {
-                            row.open_quote = Some(start_quote);
-                            update_next = true;
-                        }
-                    } else if syntax.has_digits && cells[index].chr.is_digit(10) && prev_is_sep {
-                        while index < cells.len() && cells[index].chr.is_digit(10) {
-                            update_and_advance!(EditorHighlight::Number);
-                        }
-                    } else if cells_to_string(&cells[index..].to_vec())
-                                  .starts_with(&syntax.singleline_comment) {
-                        while index < cells.len() {
-                            update_and_advance!(EditorHighlight::Comment);
-                        }
-                    } else {
-                        if index == 0 || is_separator(cells[index - 1].chr) {
-                            let following_string: String = cells_to_string(&cells[index..]
-                                                                                .to_vec());
-                            for (keywords, &highlight) in
-                                syntax
-                                    .keywords
-                                    .iter()
-                                    .zip([EditorHighlight::Keyword1,
-                                          EditorHighlight::Keyword2,
-                                          EditorHighlight::Keyword3,
-                                          EditorHighlight::Keyword4]
-                                                 .iter()) {
-                                for keyword in keywords {
-                                    let keyword_end = index + keyword.len();
-                                    if following_string.starts_with(keyword) &&
-                                       (keyword_end == cells.len() ||
-                                        is_separator(cells[keyword_end].chr)) {
-                                        while index < keyword_end {
-                                            update_and_advance!(highlight);
+                    'outer: while index < cells.len() {
+                        let prev_is_sep = index == 0 || is_separator(cells[index - 1].chr);
+                        if index == 0 && prev_open_quote.is_some() {
+                            let active_quote = prev_open_quote.expect("Just checked_it");
+                            index = EditorConfig::<T>::update_highlights_string(cells,
+                                                                                active_quote,
+                                                                                index);
+                            if index >= cells.len() {
+                                row.open_quote = Some(active_quote);
+                                update_next = true;
+                            }
+                        } else if syntax.quotes.contains(cells[index].chr) {
+                            let start_quote = cells[index].chr;
+                            update_and_advance!(EditorHighlight::String);
+                            index = EditorConfig::<T>::update_highlights_string(cells,
+                                                                                start_quote,
+                                                                                index);
+                            if index >= cells.len() {
+                                row.open_quote = Some(start_quote);
+                                update_next = true;
+                            }
+                        } else if syntax.has_digits && cells[index].chr.is_digit(10) &&
+                                  prev_is_sep {
+                            while index < cells.len() && cells[index].chr.is_digit(10) {
+                                update_and_advance!(EditorHighlight::Number);
+                            }
+                        } else if cells_to_string(&cells[index..].to_vec())
+                                      .starts_with(&syntax.singleline_comment) {
+                            while index < cells.len() {
+                                update_and_advance!(EditorHighlight::Comment);
+                            }
+                        } else {
+                            if index == 0 || is_separator(cells[index - 1].chr) {
+                                let following_string: String = cells_to_string(&cells[index..]
+                                                                                    .to_vec());
+                                for (keywords, &highlight) in
+                                    syntax
+                                        .keywords
+                                        .iter()
+                                        .zip([EditorHighlight::Keyword1,
+                                              EditorHighlight::Keyword2,
+                                              EditorHighlight::Keyword3,
+                                              EditorHighlight::Keyword4]
+                                                     .iter()) {
+                                    for keyword in keywords {
+                                        let keyword_end = index + keyword.len();
+                                        if following_string.starts_with(keyword) &&
+                                           (keyword_end == cells.len() ||
+                                            is_separator(cells[keyword_end].chr)) {
+                                            while index < keyword_end {
+                                                update_and_advance!(highlight);
+                                            }
+                                            continue 'outer;
                                         }
-                                        continue 'outer;
                                     }
                                 }
                             }
+                            update_and_advance!(EditorHighlight::Normal);
                         }
-                        update_and_advance!(EditorHighlight::Normal);
                     }
                 }
             } else {

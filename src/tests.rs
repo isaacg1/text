@@ -269,6 +269,21 @@ a";
 }
 
 #[test]
+fn multiline_string_with_blank_line() {
+    let text = "\"
+
+a";
+
+    let mut mock = mock_editor();
+    mock.filename = Some("main.rs".to_string());
+    mock.select_syntax();
+
+    mock.load_text(text);
+
+    assert_eq!(mock.rows[2].cells[0].hl, EditorHighlight::String);
+}
+
+#[test]
 fn fold_last_row_delete_char() {
     let text = "a
 b

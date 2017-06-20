@@ -3,7 +3,7 @@ Autocomplete (Maybe too ambitious?)
 Cut, Copy, Paste
 Faster Paste of long lines
 Undo (Maybe too ambitious?)
-Multiline strings & comments (If I care)
+Multiline comments
 Autointent/Dedent chars
 
 Done:
@@ -17,3 +17,4 @@ Ctrl+k deletes line + newline if used from beginning of line.
 Switch to impls.
 Remove direct array addressing.
 On Ctrl-F after Enter, start with old value.
+Multiline strings

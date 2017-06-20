@@ -374,3 +374,35 @@ fn read_key_escapes() {
 Ok, bye.",
                mock.all_text())
 }
+
+#[test]
+fn find_no_text() {
+    let keys = "\x06me";
+
+    let mut mock = mock_editor_with_input(keys);
+
+    let keypress = mock.read_key();
+    mock.process_keypress(keypress);
+}
+
+#[test]
+fn find() {
+    let text = "Hi
+my
+name
+is
+text.";
+
+    let keys = "\x06me";
+
+    let mut mock = mock_editor_with_input(keys);
+
+    mock.load_text(text);
+
+    let keypress = mock.read_key();
+    mock.process_keypress(keypress);
+
+    assert!(mock.rows[2].cells[6..]
+                .iter()
+                .all(|cell| cell.hl == EditorHighlight::Match));
+}

@@ -5,6 +5,7 @@ Faster Paste of long lines
 Undo (Maybe too ambitious?)
 Multiline comments
 Autointent/Dedent chars
+Bug with " at line end
 
 Done:
 Refresh file (Ctrl-e)

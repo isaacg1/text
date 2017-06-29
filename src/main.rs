@@ -300,27 +300,18 @@ impl<T> EditorConfig<T>
             self.folds.remove(&self.cursor_y);
         } else if self.cursor_y < self.rows.len() &&
                   whitespace_depth(&self.rows[self.cursor_y]) == 0 {
-            let mut index = 0;
-            while index < self.rows.len() {
-                if let Some(&(end, _)) = self.folds.get(&index) {
-                    index = end + 1;
-                } else if whitespace_depth(&self.rows[index]) > 0 {
-                    let depth = whitespace_depth(&self.rows[index]);
-                    let end = self.rows
-                        .iter()
-                        .enumerate()
-                        .skip(index + 1)
-                        .position(|(oth_index, row)| {
-                                      whitespace_depth(row) < depth && !row.cells.is_empty() ||
-                                      self.folds.contains_key(&oth_index)
-                                  })
-                        .map_or(self.rows.len() - 1, |offset| index + offset);
-                    self.folds.insert(index, (end, depth));
-                    index = end + 1;
+            let saved_cursor_y = self.cursor_y;
+            self.cursor_y = 0;
+            while self.cursor_y < self.rows.len() {
+                if let Some(&(end, _)) = self.folds.get(&self.cursor_y) {
+                    self.cursor_y = end + 1;
+                } else if whitespace_depth(&self.rows[self.cursor_y]) > 0 {
+                    self.create_fold();
                 } else {
-                    index += 1;
+                    self.cursor_y += 1;
                 }
             }
+            self.cursor_y = saved_cursor_y;
         } else {
             self.create_fold();
         }
@@ -1058,12 +1049,12 @@ impl<T> EditorConfig<T>
 
             let c = self.read_key();
             macro_rules! maybe_callback {
-            () => {
-                if let Some(callback) = callback {
-                    callback(self, &response, c)
+                () => {
+                    if let Some(callback) = callback {
+                        callback(self, &response, c)
+                    }
                 }
             }
-        }
             match c {
                 EditorKey::Verbatim(chr) if chr == '\x1b' || chr == ctrl_key('q') => {
                     self.set_status_message("");

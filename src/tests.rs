@@ -39,7 +39,7 @@ impl io::Read for FakeStdin {
         for i in 0..buf.len() {
             match self.backward_contents.pop() {
                 Some(b) => buf[i] = b,
-                None => return Ok(i - 1),
+                None => return Ok(i),
             }
         }
         Ok(buf.len())
@@ -284,6 +284,19 @@ a";
 }
 
 #[test]
+fn string_ending_at_eol() {
+    let text = "\"Hi!\"
+a";
+
+    let mut mock = mock_editor();
+    mock.filename = Some("main.rs".to_string());
+    mock.select_syntax();
+    mock.load_text(text);
+
+    assert_eq!(mock.rows[1].cells[0].hl, EditorHighlight::Normal);
+}
+
+#[test]
 fn fold_last_row_delete_char() {
     let text = "a
 b
@@ -362,6 +375,31 @@ d";
 }
 
 #[test]
+fn fold_all() {
+    let text = "a
+        b
+    c
+d
+    e
+    f";
+
+    let mut mock1 = mock_editor();
+    mock1.load_text(text);
+    mock1.process_keypress(EditorKey::Verbatim(ctrl_key(' ')));
+
+    let mut mock2 = mock_editor();
+    mock2.load_text(text);
+    mock2.process_keypress(EditorKey::ArrowDown);
+    mock2.process_keypress(EditorKey::Verbatim(ctrl_key(' ')));
+    mock2.process_keypress(EditorKey::ArrowDown);
+    mock2.process_keypress(EditorKey::Verbatim(ctrl_key(' ')));
+    mock2.process_keypress(EditorKey::ArrowDown);
+    mock2.process_keypress(EditorKey::ArrowDown);
+    mock2.process_keypress(EditorKey::Verbatim(ctrl_key(' ')));
+
+    assert_eq!(mock1.folds, mock2.folds);
+}
+#[test]
 fn read_key_escapes() {
     let keys = "Hi!\x1b[1~I say \x1b[4~\rOk, bye.\x1b[5~\x1b[7~\x1b[3~We\x11";
     let mut mock = mock_editor_with_input(keys);
@@ -377,7 +415,7 @@ Ok, bye.",
 
 #[test]
 fn find_no_text() {
-    let keys = "\x06me";
+    let keys = "\x06me\r";
 
     let mut mock = mock_editor_with_input(keys);
 
@@ -393,7 +431,7 @@ name
 is
 text.";
 
-    let keys = "\x06me";
+    let keys = "\x06me\r";
 
     let mut mock = mock_editor_with_input(keys);
 
@@ -402,7 +440,32 @@ text.";
     let keypress = mock.read_key();
     mock.process_keypress(keypress);
 
-    assert!(mock.rows[2].cells[6..]
-                .iter()
-                .all(|cell| cell.hl == EditorHighlight::Match));
+    // Indicates the position of the match.
+    assert_eq!(2, mock.cursor_y);
+    assert_eq!(2, mock.cursor_x);
+
+    // Highlighting should have been cleared.
+    assert!(mock.rows.iter().flat_map(|row|row.cells.iter()).all(|cell| cell.hl == EditorHighlight::Normal));
+}
+
+#[test]
+fn goto() {
+    let text = "F
+    i
+    l
+    l
+    e
+    r";
+
+    // Ctrl-g 4 Enter
+    let keys = "\x074\r";
+
+    let mut mock = mock_editor_with_input(keys);
+
+    mock.load_text(text);
+    let keypress = mock.read_key();
+    mock.process_keypress(keypress);
+
+    assert_eq!(3, mock.cursor_y);
+    assert_eq!(0, mock.cursor_x);
 }

@@ -371,9 +371,12 @@ impl<T> EditorConfig<T>
             .map_or(0, |row| row.cells.len())
     }
 
-    // Assumes that index is past the open quote, returns final position of index,
-    // Which is past the last cell iff the string is still open.
-    fn update_highlights_string(cells: &mut [Cell], start_quote: char, index: usize) -> usize {
+    // Assumes that index is past the open quote, returns final position of index, whether
+    // the string is still open.
+    fn update_highlights_string(cells: &mut [Cell],
+                                start_quote: char,
+                                index: usize)
+                                -> (usize, bool) {
         let mut index = index;
         macro_rules! update_and_advance {
             ($highlight_expression:expr) => {
@@ -385,14 +388,14 @@ impl<T> EditorConfig<T>
         while index < cells.len() {
             if cells[index].chr == start_quote {
                 update_and_advance!(EditorHighlight::String);
-                break;
+                return (index, false);
             }
             if cells[index].chr == '\\' && index + 1 < cells.len() {
                 update_and_advance!(EditorHighlight::String);
             }
             update_and_advance!(EditorHighlight::String);
         }
-        index
+        (index, true)
     }
 
     fn update_row_highlights(&mut self, row_index: usize) {
@@ -425,20 +428,24 @@ impl<T> EditorConfig<T>
                         let prev_is_sep = index == 0 || is_separator(cells[index - 1].chr);
                         if index == 0 && prev_open_quote.is_some() {
                             let active_quote = prev_open_quote.expect("Just checked_it");
-                            index = EditorConfig::<T>::update_highlights_string(cells,
-                                                                                active_quote,
-                                                                                index);
-                            if index >= cells.len() {
+                            let (new_index, is_open) =
+                                EditorConfig::<T>::update_highlights_string(cells,
+                                                                            active_quote,
+                                                                            index);
+                            index = new_index;
+                            if is_open {
                                 row.open_quote = Some(active_quote);
                                 update_next = true;
                             }
                         } else if syntax.quotes.contains(cells[index].chr) {
                             let start_quote = cells[index].chr;
                             update_and_advance!(EditorHighlight::String);
-                            index = EditorConfig::<T>::update_highlights_string(cells,
-                                                                                start_quote,
-                                                                                index);
-                            if index >= cells.len() {
+                            let (new_index, is_open) =
+                                EditorConfig::<T>::update_highlights_string(cells,
+                                                                            start_quote,
+                                                                            index);
+                            index = new_index;
+                            if is_open {
                                 row.open_quote = Some(start_quote);
                                 update_next = true;
                             }

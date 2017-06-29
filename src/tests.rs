@@ -445,7 +445,10 @@ text.";
     assert_eq!(2, mock.cursor_x);
 
     // Highlighting should have been cleared.
-    assert!(mock.rows.iter().flat_map(|row|row.cells.iter()).all(|cell| cell.hl == EditorHighlight::Normal));
+    assert!(mock.rows
+                .iter()
+                .flat_map(|row| row.cells.iter())
+                .all(|cell| cell.hl == EditorHighlight::Normal));
 }
 
 #[test]

@@ -19,6 +19,8 @@ use std::cmp::min;
 
 use std::ascii::AsciiExt;
 
+use std::mem;
+
 use std::os::raw::c_int;
 use termios::Termios;
 
@@ -815,14 +817,14 @@ where
     }
 
     /// * file i/o **
-    fn open(&mut self, filename: &str) -> io::Result<()> {
-        self.filename = Some(filename.to_string());
+    fn open(&mut self) -> io::Result<()> {
+        let filename = self.filename.clone().expect("To open, filename must be set.");
         self.select_syntax();
 
-        if !Path::new(filename).exists() {
-            File::create(filename)?;
+        if !Path::new(&filename).exists() {
+            File::create(&filename)?;
         }
-        let mut file = File::open(filename)?;
+        let mut file = File::open(&filename)?;
         let mut string = String::new();
         file.read_to_string(&mut string)?;
         self.load_text(&string);
@@ -951,7 +953,7 @@ where
         let saved_row_offset = self.row_offset;
         let saved_folds = self.folds.clone();
 
-        let saved_search = self.saved_search.to_owned();
+        let saved_search = mem::replace(&mut self.saved_search, "".to_owned());
 
         let query = self.prompt(
             "Search (ESC/Arrows/Enter): ",
@@ -966,7 +968,6 @@ where
                 self.col_offset = saved_col_offset;
                 self.row_offset = saved_row_offset;
                 self.folds = saved_folds;
-                self.saved_search = "".to_string();
             }
             Some(search) => {
                 self.saved_search = search;
@@ -1356,8 +1357,8 @@ where
                             cannot be refreshed. Quit and \
                             reopen to discard changes.",
                         );
-                    } else if let Some(filename) = self.filename.clone() {
-                        self.open(&filename).expect("Refreshing file failed")
+                    } else if self.filename.is_some() {
+                        self.open().expect("Refreshing file failed")
                     } else {
                         self.set_status_message("No file to refresh")
                     }
@@ -1407,7 +1408,8 @@ fn run() {
     let mut editor_config: EditorConfig<io::Stdin> = EditorConfig::<io::Stdin>::new();
     print!("{}", CLEAR_SCREEN);
     if let Some(filename) = env::args().nth(1) {
-        editor_config.open(&filename).expect("Opening file failed")
+        editor_config.filename = Some(filename);
+        editor_config.open().expect("Opening file failed")
     }
     editor_config.set_status_message(
         "Help: C-s save, C-q quit, C-f find, \

@@ -103,17 +103,17 @@ enum EditorHighlight {
 impl EditorHighlight {
     fn color(&self) -> String {
         REVERT_COLORS.to_owned() +
-        match *self {
-            EditorHighlight::Normal => "",
-            EditorHighlight::Number => RED,
-            EditorHighlight::Match => BACK_BLUE,
-            EditorHighlight::String => MAGENTA,
-            EditorHighlight::Comment => CYAN,
-            EditorHighlight::Keyword1 => YELLOW,
-            EditorHighlight::Keyword2 => GREEN,
-            EditorHighlight::Keyword3 => BRIGHT_GREEN,
-            EditorHighlight::Keyword4 => BRIGHT_YELLOW,
-        }
+            match *self {
+                EditorHighlight::Normal => "",
+                EditorHighlight::Number => RED,
+                EditorHighlight::Match => BACK_BLUE,
+                EditorHighlight::String => MAGENTA,
+                EditorHighlight::Comment => CYAN,
+                EditorHighlight::Keyword1 => YELLOW,
+                EditorHighlight::Keyword2 => GREEN,
+                EditorHighlight::Keyword3 => BRIGHT_GREEN,
+                EditorHighlight::Keyword4 => BRIGHT_YELLOW,
+            }
     }
 }
 
@@ -197,18 +197,19 @@ fn string_to_row(s: &str) -> Row {
     Row {
         cells: s.chars()
             .map(|c| {
-                     Cell {
-                         chr: c,
-                         hl: EditorHighlight::Normal,
-                     }
-                 })
+                Cell {
+                    chr: c,
+                    hl: EditorHighlight::Normal,
+                }
+            })
             .collect(),
         open_quote: None,
     }
 }
 
 impl<T> EditorConfig<T>
-    where T: io::Read
+where
+    T: io::Read,
 {
     fn new() -> EditorConfig<io::Stdin> {
         let mut ws = libc::winsize {
@@ -279,15 +280,16 @@ impl<T> EditorConfig<T>
         for (&start1, &(end1, _)) in &self.folds {
             for (&start2, &(end2, _)) in &self.folds {
                 if (start1 <= start2 && start2 <= end1 && end1 <= end2) &&
-                   !(start1 == start2 && end1 == end2) {
+                    !(start1 == start2 && end1 == end2)
+                {
                     fold_fold_failure = Some("Two folds overlap");
                     break;
                 }
             }
         }
-        cursor_position_failure
-            .or(fold_failure)
-            .or(fold_fold_failure)
+        cursor_position_failure.or(fold_failure).or(
+            fold_fold_failure,
+        )
     }
 
     /// * paste mode **
@@ -302,7 +304,8 @@ impl<T> EditorConfig<T>
         if self.folds.contains_key(&self.cursor_y) {
             self.folds.remove(&self.cursor_y);
         } else if self.cursor_y < self.rows.len() &&
-                  whitespace_depth(&self.rows[self.cursor_y]) == 0 {
+                   whitespace_depth(&self.rows[self.cursor_y]) == 0
+        {
             let saved_cursor_y = self.cursor_y;
             self.cursor_y = 0;
             while self.cursor_y < self.rows.len() {
@@ -326,12 +329,16 @@ impl<T> EditorConfig<T>
                 .iter()
                 .rev()
                 .skip(self.rows.len() - self.cursor_y)
-                .position(|row| whitespace_depth(row) < fold_depth && !row.cells.is_empty())
+                .position(|row| {
+                    whitespace_depth(row) < fold_depth && !row.cells.is_empty()
+                })
                 .map_or(0, |reverse_offset| self.cursor_y - reverse_offset);
             let end = self.rows
                 .iter()
                 .skip(self.cursor_y + 1)
-                .position(|row| whitespace_depth(row) < fold_depth && !row.cells.is_empty())
+                .position(|row| {
+                    whitespace_depth(row) < fold_depth && !row.cells.is_empty()
+                })
                 .map_or(self.rows.len() - 1, |offset| self.cursor_y + offset);
             self.folds.insert(start, (end, fold_depth));
             self.cursor_y = start;
@@ -341,8 +348,13 @@ impl<T> EditorConfig<T>
     fn open_folds(&mut self) {
         let to_remove: Vec<_> = self.folds
             .iter()
-            .filter(|&(&start, &(end, _depth))| start <= self.cursor_y && self.cursor_y <= end)
-            .map(|(&start, _)| start)
+            .filter_map(|(&start, &(end, _depth))| if start <= self.cursor_y &&
+                self.cursor_y <= end
+            {
+                Some(start)
+            } else {
+                None
+            })
             .collect();
         for start in to_remove {
             self.folds.remove(&start);
@@ -350,16 +362,19 @@ impl<T> EditorConfig<T>
     }
 
     fn one_row_forward(&self, index: usize) -> usize {
-        min(self.rows.len(),
-            self.folds.get(&index).map_or(index, |&(end, _)| end) + 1)
+        min(
+            self.rows.len(),
+            self.folds.get(&index).map_or(index, |&(end, _)| end) + 1,
+        )
     }
 
     fn one_row_back(&self, index: usize) -> usize {
         if let Some(prev_index) = index.checked_sub(1) {
             if let Some((&start, _end_and_depth)) =
-                self.folds
-                    .iter()
-                    .find(|&(_start, &(end, _depth))| end == prev_index) {
+                self.folds.iter().find(|&(_start, &(end, _depth))| {
+                    end == prev_index
+                })
+            {
                 start
             } else {
                 prev_index
@@ -372,17 +387,19 @@ impl<T> EditorConfig<T>
     /// * row operations **
 
     fn current_row_len(&self) -> usize {
-        self.rows
-            .get(self.cursor_y)
-            .map_or(0, |row| row.cells.len())
+        self.rows.get(self.cursor_y).map_or(
+            0,
+            |row| row.cells.len(),
+        )
     }
 
     // Assumes that index is past the open quote, returns final position of index, whether
     // the string is still open.
-    fn update_highlights_string(cells: &mut [Cell],
-                                start_quote: char,
-                                start_index: usize)
-                                -> (usize, bool) {
+    fn update_highlights_string(
+        cells: &mut [Cell],
+        start_quote: char,
+        start_index: usize,
+    ) -> (usize, bool) {
         let mut index = start_index;
         macro_rules! update_and_advance {
             ($highlight_expression:expr) => {
@@ -435,9 +452,11 @@ impl<T> EditorConfig<T>
                         if index == 0 && prev_open_quote.is_some() {
                             let active_quote = prev_open_quote.expect("Just checked_it");
                             let (new_index, is_open) =
-                                EditorConfig::<T>::update_highlights_string(cells,
-                                                                            active_quote,
-                                                                            index);
+                                EditorConfig::<T>::update_highlights_string(
+                                    cells,
+                                    active_quote,
+                                    index,
+                                );
                             index = new_index;
                             if is_open {
                                 row.open_quote = Some(active_quote);
@@ -447,21 +466,26 @@ impl<T> EditorConfig<T>
                             let start_quote = cells[index].chr;
                             update_and_advance!(EditorHighlight::String);
                             let (new_index, is_open) =
-                                EditorConfig::<T>::update_highlights_string(cells,
-                                                                            start_quote,
-                                                                            index);
+                                EditorConfig::<T>::update_highlights_string(
+                                    cells,
+                                    start_quote,
+                                    index,
+                                );
                             index = new_index;
                             if is_open {
                                 row.open_quote = Some(start_quote);
                                 update_next = true;
                             }
                         } else if syntax.has_digits && cells[index].chr.is_digit(10) &&
-                                  prev_is_sep {
+                                   prev_is_sep
+                        {
                             while index < cells.len() && cells[index].chr.is_digit(10) {
                                 update_and_advance!(EditorHighlight::Number);
                             }
-                        } else if cells_to_string(&cells[index..])
-                                      .starts_with(&syntax.singleline_comment) {
+                        } else if cells_to_string(&cells[index..]).starts_with(
+                            &syntax.singleline_comment,
+                        )
+                        {
                             while index < cells.len() {
                                 update_and_advance!(EditorHighlight::Comment);
                             }
@@ -469,19 +493,21 @@ impl<T> EditorConfig<T>
                             if index == 0 || is_separator(cells[index - 1].chr) {
                                 let following_string: String = cells_to_string(&cells[index..]);
                                 for (keywords, &highlight) in
-                                    syntax
-                                        .keywords
-                                        .iter()
-                                        .zip([EditorHighlight::Keyword1,
-                                              EditorHighlight::Keyword2,
-                                              EditorHighlight::Keyword3,
-                                              EditorHighlight::Keyword4]
-                                                     .iter()) {
+                                    syntax.keywords.iter().zip(
+                                        [
+                                            EditorHighlight::Keyword1,
+                                            EditorHighlight::Keyword2,
+                                            EditorHighlight::Keyword3,
+                                            EditorHighlight::Keyword4,
+                                        ].iter(),
+                                    )
+                                {
                                     for keyword in keywords {
                                         let keyword_end = index + keyword.len();
                                         if following_string.starts_with(keyword) &&
-                                           (keyword_end == cells.len() ||
-                                            is_separator(cells[keyword_end].chr)) {
+                                            (keyword_end == cells.len() ||
+                                                 is_separator(cells[keyword_end].chr))
+                                        {
                                             while index < keyword_end {
                                                 update_and_advance!(highlight);
                                             }
@@ -506,84 +532,136 @@ impl<T> EditorConfig<T>
     }
 
     fn select_syntax(&mut self) {
-        self.syntax = self.filename
-            .as_ref()
-            .and_then(|filename| {
-                let syntax_database =
-                    vec![EditorSyntax {
-                             filetype: "rust".to_string(),
-                             extensions: vec![".rs".to_string()],
-                             has_digits: true,
-                             quotes: "\"".to_string(),
-                             singleline_comment: "//".to_string(),
-                             keywords: [vec!["alignof", "as", "break", "continue", "crate",
-                                             "else", "extern", "fn", "for", "if", "impl", "in",
-                                             "let", "loop", "macro", "match", "mod", "offsetof",
-                                             "pub", "return", "sizeof", "trait", "typeof",
-                                             "unsafe", "use", "where", "while", "yield"]
-                                                .iter()
-                                                .map(|x| x.to_string())
-                                                .collect::<Vec<_>>(),
-                                        vec!["box", "mut", "const", "enum", "ref", "static",
-                                             "struct", "type"]
-                                                .iter()
-                                                .map(|x| x.to_string())
-                                                .collect::<Vec<_>>(),
-                                        vec!["false", "self", "Self", "super", "true"]
-                                            .iter()
-                                            .map(|x| x.to_string())
-                                            .collect::<Vec<_>>(),
-                                        vec!["bool", "char", "i8", "i16", "i32", "i64", "isize",
-                                             "f32", "f64", "str", "u8", "u16", "u32", "u64",
-                                             "usize"]
-                                                .iter()
-                                                .map(|x| x.to_string())
-                                                .collect::<Vec<_>>()],
-                         },
-                         EditorSyntax {
-                             filetype: "c".to_string(),
-                             extensions: vec![".c".to_string(),
-                                              ".h".to_string(),
-                                              ".cpp".to_string()],
-                             has_digits: true,
-                             quotes: "\"'".to_string(),
-                             singleline_comment: "//".to_string(),
-                             keywords: [vec![], vec![], vec![], vec![]],
-                         },
-                         EditorSyntax {
-                             filetype: "py".to_string(),
-                             extensions: vec![".py".to_string()],
-                             has_digits: true,
-                             quotes: "\"'".to_string(),
-                             singleline_comment: "#".to_string(),
-                             keywords: [vec!["break", "continue", "def", "elif", "else", "for",
-                                             "from", "if", "import", "in", "return", "while"]
-                                                .iter()
-                                                .map(|x| x.to_string())
-                                                .collect::<Vec<_>>(),
-                                        vec!["any", "abs", "input", "int", "len", "range",
-                                             "print", "zip"]
-                                                .iter()
-                                                .map(|x| x.to_string())
-                                                .collect::<Vec<_>>(),
-                                        vec!["False", "True"]
-                                            .iter()
-                                            .map(|x| x.to_string())
-                                            .collect::<Vec<_>>(),
-                                        vec!["and", "not", "or"]
-                                            .iter()
-                                            .map(|x| x.to_string())
-                                            .collect::<Vec<_>>()],
-                         }];
-                syntax_database
-                    .into_iter()
-                    .find(|entry| {
-                              entry
-                                  .extensions
-                                  .iter()
-                                  .any(|extension| filename.ends_with(extension))
-                          })
-            });
+        self.syntax = self.filename.as_ref().and_then(|filename| {
+            let syntax_database = vec![
+                EditorSyntax {
+                    filetype: "rust".to_string(),
+                    extensions: vec![".rs".to_string()],
+                    has_digits: true,
+                    quotes: "\"".to_string(),
+                    singleline_comment: "//".to_string(),
+                    keywords: [
+                        vec![
+                            "alignof",
+                            "as",
+                            "break",
+                            "continue",
+                            "crate",
+                            "else",
+                            "extern",
+                            "fn",
+                            "for",
+                            "if",
+                            "impl",
+                            "in",
+                            "let",
+                            "loop",
+                            "macro",
+                            "match",
+                            "mod",
+                            "offsetof",
+                            "pub",
+                            "return",
+                            "sizeof",
+                            "trait",
+                            "typeof",
+                            "unsafe",
+                            "use",
+                            "where",
+                            "while",
+                            "yield",
+                        ].iter()
+                            .map(|x| x.to_string())
+                            .collect::<Vec<_>>(),
+                        vec![
+                            "box",
+                            "mut",
+                            "const",
+                            "enum",
+                            "ref",
+                            "static",
+                            "struct",
+                            "type",
+                        ].iter()
+                            .map(|x| x.to_string())
+                            .collect::<Vec<_>>(),
+                        vec!["false", "self", "Self", "super", "true"]
+                            .iter()
+                            .map(|x| x.to_string())
+                            .collect::<Vec<_>>(),
+                        vec![
+                            "bool",
+                            "char",
+                            "i8",
+                            "i16",
+                            "i32",
+                            "i64",
+                            "isize",
+                            "f32",
+                            "f64",
+                            "str",
+                            "u8",
+                            "u16",
+                            "u32",
+                            "u64",
+                            "usize",
+                        ].iter()
+                            .map(|x| x.to_string())
+                            .collect::<Vec<_>>(),
+                    ],
+                },
+                EditorSyntax {
+                    filetype: "c".to_string(),
+                    extensions: vec![".c".to_string(), ".h".to_string(), ".cpp".to_string()],
+                    has_digits: true,
+                    quotes: "\"'".to_string(),
+                    singleline_comment: "//".to_string(),
+                    keywords: [vec![], vec![], vec![], vec![]],
+                },
+                EditorSyntax {
+                    filetype: "py".to_string(),
+                    extensions: vec![".py".to_string()],
+                    has_digits: true,
+                    quotes: "\"'".to_string(),
+                    singleline_comment: "#".to_string(),
+                    keywords: [
+                        vec![
+                            "break",
+                            "continue",
+                            "def",
+                            "elif",
+                            "else",
+                            "for",
+                            "from",
+                            "if",
+                            "import",
+                            "in",
+                            "return",
+                            "while",
+                        ].iter()
+                            .map(|x| x.to_string())
+                            .collect::<Vec<_>>(),
+                        vec!["any", "abs", "input", "int", "len", "range", "print", "zip"]
+                            .iter()
+                            .map(|x| x.to_string())
+                            .collect::<Vec<_>>(),
+                        vec!["False", "True"]
+                            .iter()
+                            .map(|x| x.to_string())
+                            .collect::<Vec<_>>(),
+                        vec!["and", "not", "or"]
+                            .iter()
+                            .map(|x| x.to_string())
+                            .collect::<Vec<_>>(),
+                    ],
+                },
+            ];
+            syntax_database.into_iter().find(|entry| {
+                entry.extensions.iter().any(|extension| {
+                    filename.ends_with(extension)
+                })
+            })
+        });
         for index in 0..self.rows.len() {
             self.update_row_highlights(index);
         }
@@ -594,19 +672,18 @@ impl<T> EditorConfig<T>
 
     fn insert_char(&mut self, c: char) {
         if self.cursor_y == self.rows.len() {
-            self.rows
-                .push(Row {
-                          cells: Vec::new(),
-                          open_quote: None,
-                      });
+            self.rows.push(Row {
+                cells: Vec::new(),
+                open_quote: None,
+            });
         }
-        self.rows[self.cursor_y]
-            .cells
-            .insert(self.cursor_x,
-                    Cell {
-                        chr: c,
-                        hl: EditorHighlight::Normal,
-                    });
+        self.rows[self.cursor_y].cells.insert(
+            self.cursor_x,
+            Cell {
+                chr: c,
+                hl: EditorHighlight::Normal,
+            },
+        );
         let index = self.cursor_y;
         self.update_row_highlights(index);
         self.cursor_x += 1;
@@ -615,20 +692,19 @@ impl<T> EditorConfig<T>
 
     fn insert_tab(&mut self) {
         if self.cursor_y == self.rows.len() {
-            self.rows
-                .push(Row {
-                          cells: Vec::new(),
-                          open_quote: None,
-                      });
+            self.rows.push(Row {
+                cells: Vec::new(),
+                open_quote: None,
+            });
         }
         for _ in 0..4 - self.cursor_x % 4 {
-            self.rows[self.cursor_y]
-                .cells
-                .insert(self.cursor_x,
-                        Cell {
-                            chr: ' ',
-                            hl: EditorHighlight::Normal,
-                        });
+            self.rows[self.cursor_y].cells.insert(
+                self.cursor_x,
+                Cell {
+                    chr: ' ',
+                    hl: EditorHighlight::Normal,
+                },
+            );
             self.cursor_x += 1;
         }
         let index = self.cursor_y;
@@ -651,12 +727,13 @@ impl<T> EditorConfig<T>
             };
             // If in the whitespace, insert blank line.
             if depth >= self.cursor_x {
-                self.rows
-                    .insert(self.cursor_y,
-                            Row {
-                                cells: vec![],
-                                open_quote: open_quote,
-                            });
+                self.rows.insert(
+                    self.cursor_y,
+                    Row {
+                        cells: vec![],
+                        open_quote: open_quote,
+                    },
+                );
             } else {
                 let cells_end = self.rows[self.cursor_y].cells.split_off(self.cursor_x);
                 let mut next_row_cells = self.rows[self.cursor_y].cells[..depth].to_vec();
@@ -678,11 +755,10 @@ impl<T> EditorConfig<T>
 
             self.cursor_x = depth;
         } else {
-            self.rows
-                .push(Row {
-                          cells: vec![],
-                          open_quote: open_quote,
-                      })
+            self.rows.push(Row {
+                cells: vec![],
+                open_quote: open_quote,
+            })
         }
         self.cursor_y += 1;
         self.modified = true;
@@ -718,9 +794,10 @@ impl<T> EditorConfig<T>
             self.cursor_x = prev_x;
             self.modified = true
         } else if 0 < self.cursor_y && self.cursor_y < self.rows.len() {
-            if self.folds
-                   .values()
-                   .any(|&(end, _)| end == self.cursor_y - 1) {
+            if self.folds.values().any(
+                |&(end, _)| end == self.cursor_y - 1,
+            )
+            {
                 self.set_status_message(DONT_EDIT_FOLDS);
             } else {
                 self.cursor_x = self.rows[self.cursor_y - 1].cells.len();
@@ -831,9 +908,8 @@ impl<T> EditorConfig<T>
                     };
                     potential_match.or_else(|| self.rows.iter().position(find_predicate))
                 } else if key == EditorKey::ArrowLeft || key == EditorKey::ArrowUp {
-                    let potential_match = self.rows[..self.cursor_y]
-                        .iter()
-                        .rposition(find_predicate);
+                    let potential_match =
+                        self.rows[..self.cursor_y].iter().rposition(find_predicate);
                     potential_match.or_else(|| self.rows.iter().rposition(find_predicate))
                 } else {
                     let potential_match = if self.cursor_y < self.rows.len() {
@@ -849,18 +925,19 @@ impl<T> EditorConfig<T>
                 }
             };
             if let Some(match_line) = match_line {
-                let match_index = row_to_string(&self.rows[match_line])
-                    .find(query)
-                    .expect("We just checked the row contained the string");
+                let match_index = row_to_string(&self.rows[match_line]).find(query).expect(
+                    "We just checked the row contained the string",
+                );
                 self.cursor_y = match_line;
                 self.open_folds();
                 self.cursor_x = match_index;
                 self.row_offset = self.rows.len();
                 for cell in self.rows[match_line]
-                        .cells
-                        .iter_mut()
-                        .skip(match_index)
-                        .take(query.len()) {
+                    .cells
+                    .iter_mut()
+                    .skip(match_index)
+                    .take(query.len())
+                {
                     cell.hl = EditorHighlight::Match
                 }
             }
@@ -876,9 +953,11 @@ impl<T> EditorConfig<T>
 
         let saved_search = self.saved_search.to_owned();
 
-        let query = self.prompt("Search (ESC/Arrows/Enter): ",
-                                &saved_search,
-                                Some(&|ed, query, key| ed.find_callback(query, key)));
+        let query = self.prompt(
+            "Search (ESC/Arrows/Enter): ",
+            &saved_search,
+            Some(&|ed, query, key| ed.find_callback(query, key)),
+        );
 
         match query {
             None => {
@@ -953,8 +1032,9 @@ impl<T> EditorConfig<T>
                 append_buffer.push_str(&fold_white_str);
                 append_buffer.push_str(INVERT_COLORS);
                 append_buffer.push_str(&fold_msg);
-                let padding = self.screen_cols
-                    .saturating_sub(fold_msg.len() + fold_white_str.len());
+                let padding = self.screen_cols.saturating_sub(
+                    fold_msg.len() + fold_white_str.len(),
+                );
                 append_buffer.push_str(&" ".repeat(padding));
                 append_buffer.push_str(REVERT_COLORS);
                 file_row = fold_end + 1;
@@ -1012,9 +1092,9 @@ impl<T> EditorConfig<T>
 
     fn draw_status_bar(&self, append_buffer: &mut String) {
         append_buffer.push_str(INVERT_COLORS);
-        let mut name = self.filename
-            .clone()
-            .unwrap_or_else(|| "[No Name]".to_string());
+        let mut name = self.filename.clone().unwrap_or_else(
+            || "[No Name]".to_string(),
+        );
         name.truncate(20);
         let dirty = if self.modified { "(modified)" } else { "" };
         let paste = if self.paste_mode { "(paste)" } else { "" };
@@ -1025,18 +1105,21 @@ impl<T> EditorConfig<T>
             None => "no ft",
             Some(ref syntax) => &syntax.filetype,
         };
-        let mut right_status = format!("{} | r: {}/{}, c: {}/{}",
-                                       filetype,
-                                       self.cursor_y + 1,
-                                       self.rows.len(),
-                                       self.cursor_x + 1,
-                                       self.rows
-                                           .get(self.cursor_y)
-                                           .map_or(0, |row| row.cells.len()));
+        let mut right_status = format!(
+            "{} | r: {}/{}, c: {}/{}",
+            filetype,
+            self.cursor_y + 1,
+            self.rows.len(),
+            self.cursor_x + 1,
+            self.rows.get(self.cursor_y).map_or(
+                0,
+                |row| row.cells.len(),
+            )
+        );
         right_status.truncate(self.screen_cols.saturating_sub(status.len() + 1));
-        append_buffer.push_str(&" ".repeat(self.screen_cols
-                                               .saturating_sub(status.len() +
-                                                               right_status.len())));
+        append_buffer.push_str(&" ".repeat(self.screen_cols.saturating_sub(
+            status.len() + right_status.len(),
+        )));
         append_buffer.push_str(&right_status);
         append_buffer.push_str(REVERT_COLORS);
         append_buffer.push_str("\r\n");
@@ -1065,9 +1148,9 @@ impl<T> EditorConfig<T>
         append_buffer.push_str(&cursor_control);
         append_buffer.push_str(SHOW_CURSOR);
         print!("{}", append_buffer);
-        io::stdout()
-            .flush()
-            .expect("Flushing to stdout should work");
+        io::stdout().flush().expect(
+            "Flushing to stdout should work",
+        );
     }
 
     fn set_status_message(&mut self, message: &str) {
@@ -1077,11 +1160,12 @@ impl<T> EditorConfig<T>
 
     /// * input **
 
-    fn prompt(&mut self,
-              prompt: &str,
-              initial_response: &str,
-              callback: Option<&Fn(&mut EditorConfig<T>, &str, EditorKey) -> ()>)
-              -> Option<String> {
+    fn prompt(
+        &mut self,
+        prompt: &str,
+        initial_response: &str,
+        callback: Option<&Fn(&mut EditorConfig<T>, &str, EditorKey) -> ()>,
+    ) -> Option<String> {
         let mut response: String = initial_response.to_owned();
         loop {
             self.set_status_message(&format!("{}{}", prompt, response));
@@ -1128,16 +1212,14 @@ impl<T> EditorConfig<T>
     }
 
     fn screen_x(&self) -> usize {
-        self.rows
-            .get(self.cursor_y)
-            .map_or(0, |row| {
-                row.cells
-                    .iter()
-                    .take(self.cursor_x)
-                    .skip(self.col_offset)
-                    .map(|cell| if cell.chr == '\t' { TAB_STOP } else { 1 })
-                    .sum()
-            })
+        self.rows.get(self.cursor_y).map_or(0, |row| {
+            row.cells
+                .iter()
+                .take(self.cursor_x)
+                .skip(self.col_offset)
+                .map(|cell| if cell.chr == '\t' { TAB_STOP } else { 1 })
+                .sum()
+        })
     }
 
     fn screen_y(&self) -> usize {
@@ -1199,63 +1281,62 @@ impl<T> EditorConfig<T>
 
     fn read_key(&mut self) -> EditorKey {
         let mut buffer: [u8; 1] = [0];
-        while self.input_source
-                  .read(&mut buffer)
-                  .expect("Read failure") == 0 {}
+        while self.input_source.read(&mut buffer).expect("Read failure") == 0 {}
         let c = buffer[0] as char;
         if c == '\x1b' {
-                let mut escape_buf: [u8; 3] = [0; 3];
-                match self.input_source
-                          .read(&mut escape_buf)
-                          .expect("Read failure during escape sequence") {
-                    2 | 3 => {
-                        if escape_buf[0] as char == '[' {
-                            if escape_buf[2] as char == '~' {
-                                match escape_buf[1] as char {
-                                    '1' | '7' => Some(EditorKey::Home),
-                                    '3' => Some(EditorKey::Delete),
-                                    '4' | '8' => Some(EditorKey::End),
-                                    '5' => Some(EditorKey::PageUp),
-                                    '6' => Some(EditorKey::PageDown),
-                                    _ => None,
-                                }
-                            } else {
-                                match escape_buf[1] as char {
-                                    'A' => Some(EditorKey::ArrowUp),
-                                    'B' => Some(EditorKey::ArrowDown),
-                                    'C' => Some(EditorKey::ArrowRight),
-                                    'D' => Some(EditorKey::ArrowLeft),
-                                    'H' => Some(EditorKey::Home),
-                                    'F' => Some(EditorKey::End),
-                                    _ => None,
-                                }
-                            }
-                        } else if escape_buf[0] as char == 'O' {
+            let mut escape_buf: [u8; 3] = [0; 3];
+            match self.input_source.read(&mut escape_buf).expect(
+                "Read failure during escape sequence",
+            ) {
+                2 | 3 => {
+                    if escape_buf[0] as char == '[' {
+                        if escape_buf[2] as char == '~' {
                             match escape_buf[1] as char {
+                                '1' | '7' => Some(EditorKey::Home),
+                                '3' => Some(EditorKey::Delete),
+                                '4' | '8' => Some(EditorKey::End),
+                                '5' => Some(EditorKey::PageUp),
+                                '6' => Some(EditorKey::PageDown),
+                                _ => None,
+                            }
+                        } else {
+                            match escape_buf[1] as char {
+                                'A' => Some(EditorKey::ArrowUp),
+                                'B' => Some(EditorKey::ArrowDown),
+                                'C' => Some(EditorKey::ArrowRight),
+                                'D' => Some(EditorKey::ArrowLeft),
                                 'H' => Some(EditorKey::Home),
                                 'F' => Some(EditorKey::End),
                                 _ => None,
                             }
-                        } else {
-                            None
                         }
+                    } else if escape_buf[0] as char == 'O' {
+                        match escape_buf[1] as char {
+                            'H' => Some(EditorKey::Home),
+                            'F' => Some(EditorKey::End),
+                            _ => None,
+                        }
+                    } else {
+                        None
                     }
-                    _ => None,
                 }
-            } else {
-                None
+                _ => None,
             }
-            .unwrap_or_else(|| EditorKey::Verbatim(c))
+        } else {
+            None
+        }.unwrap_or_else(|| EditorKey::Verbatim(c))
     }
     // Return value indicates whether we should continue processing keypresses.
     fn process_keypress(&mut self, c: EditorKey) -> bool {
         if c == EditorKey::Verbatim(ctrl_key('q')) {
             if self.modified && self.quit_times > 0 {
                 let quit_times = self.quit_times;
-                self.set_status_message(&format!("Warning: File has unsaved changes. \
-                                                       Ctrl-S to save, or press Ctrl-Q \
-                                                       {} more times to quit.",
-                                                 quit_times));
+                self.set_status_message(&format!(
+                    "Warning: File has unsaved changes. \
+                    Ctrl-S to save, or press Ctrl-Q \
+                    {} more times to quit.",
+                    quit_times
+                ));
                 self.quit_times -= 1;
                 true
             } else {
@@ -1270,9 +1351,11 @@ impl<T> EditorConfig<T>
                 EditorKey::Verbatim(chr) if chr == '\x1b' || chr == ctrl_key('l') => (),
                 EditorKey::Verbatim(chr) if chr == ctrl_key('e') => {
                     if self.modified {
-                        self.set_status_message("File has unsaved changed, and \
-                                                      cannot be refreshed. Quit and \
-                                                      reopen to discard changes.");
+                        self.set_status_message(
+                            "File has unsaved changed, and \
+                            cannot be refreshed. Quit and \
+                            reopen to discard changes.",
+                        );
                     } else if let Some(filename) = self.filename.clone() {
                         self.open(&filename).expect("Refreshing file failed")
                     } else {
@@ -1297,7 +1380,8 @@ impl<T> EditorConfig<T>
                 EditorKey::Verbatim('\r') => self.insert_newline(),
                 EditorKey::Delete => {
                     if self.folds.contains_key(&(self.cursor_y + 1)) &&
-                       self.cursor_x == self.rows[self.cursor_y].cells.len() {
+                        self.cursor_x == self.rows[self.cursor_y].cells.len()
+                    {
                         self.set_status_message(DONT_EDIT_FOLDS);
                     } else {
                         self.move_cursor(EditorKey::ArrowRight);
@@ -1323,12 +1407,12 @@ fn run() {
     let mut editor_config: EditorConfig<io::Stdin> = EditorConfig::<io::Stdin>::new();
     print!("{}", CLEAR_SCREEN);
     if let Some(filename) = env::args().nth(1) {
-        editor_config
-            .open(&filename)
-            .expect("Opening file failed")
+        editor_config.open(&filename).expect("Opening file failed")
     }
-    editor_config.set_status_message("Help: C-s save, C-q quit, C-f find, \
-        C-' ' fold, C-e refresh, C-k del row, C-g go to, C-p paste mode.");
+    editor_config.set_status_message(
+        "Help: C-s save, C-q quit, C-f find, \
+        C-' ' fold, C-e refresh, C-k del row, C-g go to, C-p paste mode.",
+    );
     loop {
         editor_config.warn_consistency();
         editor_config.refresh_screen();
@@ -1529,37 +1613,36 @@ mod tests {
         mock.load_text(text);
 
         assert_eq!(mock.rows.len(), 4);
-        assert!(mock.rows[0].cells[..2]
-                    .iter()
-                    .all(|cell| cell.hl == EditorHighlight::Keyword1));
-        assert!(mock.rows[0].cells[2..]
-                    .iter()
-                    .all(|cell| cell.hl == EditorHighlight::Normal));
-        assert!(mock.rows[1].cells[..13]
-                    .iter()
-                    .all(|cell| cell.hl == EditorHighlight::Normal));
-        assert!(mock.rows[1].cells[13..30]
-                    .iter()
-                    .all(|cell| cell.hl == EditorHighlight::String));
-        assert!(mock.rows[1].cells[30..]
-                    .iter()
-                    .all(|cell| cell.hl == EditorHighlight::Normal));
-        assert!(mock.rows[2].cells[..4]
-                    .iter()
-                    .all(|cell| cell.hl == EditorHighlight::Normal));
-        assert!(mock.rows[2].cells[4..7]
-                    .iter()
-                    .all(|cell| cell.hl == EditorHighlight::Number));
-        assert!(mock.rows[2].cells[7..8]
-                    .iter()
-                    .all(|cell| cell.hl == EditorHighlight::Normal));
-        assert!(mock.rows[2].cells[8..]
-                    .iter()
-                    .all(|cell| cell.hl == EditorHighlight::Comment));
-        assert!(mock.rows[3]
-                    .cells
-                    .iter()
-                    .all(|cell| cell.hl == EditorHighlight::Normal));
+        assert!(mock.rows[0].cells[..2].iter().all(|cell| {
+            cell.hl == EditorHighlight::Keyword1
+        }));
+        assert!(mock.rows[0].cells[2..].iter().all(|cell| {
+            cell.hl == EditorHighlight::Normal
+        }));
+        assert!(mock.rows[1].cells[..13].iter().all(|cell| {
+            cell.hl == EditorHighlight::Normal
+        }));
+        assert!(mock.rows[1].cells[13..30].iter().all(|cell| {
+            cell.hl == EditorHighlight::String
+        }));
+        assert!(mock.rows[1].cells[30..].iter().all(|cell| {
+            cell.hl == EditorHighlight::Normal
+        }));
+        assert!(mock.rows[2].cells[..4].iter().all(|cell| {
+            cell.hl == EditorHighlight::Normal
+        }));
+        assert!(mock.rows[2].cells[4..7].iter().all(|cell| {
+            cell.hl == EditorHighlight::Number
+        }));
+        assert!(mock.rows[2].cells[7..8].iter().all(|cell| {
+            cell.hl == EditorHighlight::Normal
+        }));
+        assert!(mock.rows[2].cells[8..].iter().all(|cell| {
+            cell.hl == EditorHighlight::Comment
+        }));
+        assert!(mock.rows[3].cells.iter().all(|cell| {
+            cell.hl == EditorHighlight::Normal
+        }));
     }
 
     #[test]
@@ -1575,22 +1658,21 @@ mod tests {
         mock.load_text(text);
 
         assert_eq!(mock.rows.len(), 3);
-        assert!(mock.rows[0].cells[..8]
-                    .iter()
-                    .all(|cell| cell.hl == EditorHighlight::Normal));
-        assert!(mock.rows[0].cells[8..]
-                    .iter()
-                    .all(|cell| cell.hl == EditorHighlight::String));
-        assert!(mock.rows[1]
-                    .cells
-                    .iter()
-                    .all(|cell| cell.hl == EditorHighlight::String));
-        assert!(mock.rows[2].cells[..8]
-                    .iter()
-                    .all(|cell| cell.hl == EditorHighlight::String));
-        assert!(mock.rows[2].cells[8..]
-                    .iter()
-                    .all(|cell| cell.hl == EditorHighlight::Normal));
+        assert!(mock.rows[0].cells[..8].iter().all(|cell| {
+            cell.hl == EditorHighlight::Normal
+        }));
+        assert!(mock.rows[0].cells[8..].iter().all(|cell| {
+            cell.hl == EditorHighlight::String
+        }));
+        assert!(mock.rows[1].cells.iter().all(|cell| {
+            cell.hl == EditorHighlight::String
+        }));
+        assert!(mock.rows[2].cells[..8].iter().all(|cell| {
+            cell.hl == EditorHighlight::String
+        }));
+        assert!(mock.rows[2].cells[8..].iter().all(|cell| {
+            cell.hl == EditorHighlight::Normal
+        }));
     }
 
     #[test]
@@ -1763,10 +1845,11 @@ mod tests {
         assert_eq!(2, mock.cursor_x);
 
         // Highlighting should have been cleared.
-        assert!(mock.rows
-                    .iter()
-                    .flat_map(|row| row.cells.iter())
-                    .all(|cell| cell.hl == EditorHighlight::Normal));
+        assert!(mock.rows.iter().flat_map(|row| row.cells.iter()).all(
+            |cell| {
+                cell.hl == EditorHighlight::Normal
+            },
+        ));
     }
 
     #[test]

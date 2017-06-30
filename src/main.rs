@@ -789,23 +789,20 @@ impl<T> EditorConfig<T>
     }
 
     fn save(&mut self) -> io::Result<()> {
-        let filename = if let Some(ref filename) = self.filename {
-            filename.clone()
-        } else {
+        if self.filename.is_none() {
             match self.prompt("Save as: ", "", None) {
                 None => {
                     self.set_status_message("Save aborted");
                     return Ok(());
                 }
                 Some(filename) => {
-                    self.filename = Some(filename.clone());
+                    self.filename = Some(filename);
                     self.select_syntax();
-                    filename
                 }
             }
         };
 
-        let mut file = File::create(filename)?;
+        let mut file = File::create(self.filename.as_ref().expect("Just set it"))?;
         let text = self.all_text();
         file.write_all(text.as_bytes())?;
         self.modified = false;

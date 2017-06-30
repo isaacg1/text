@@ -1,6 +1,7 @@
 Todo:
 Autocomplete (Maybe too ambitious?)
 Cut, Copy, Paste
+ - Toggle paste mode, which turns off syntax highlighting (speed) and intenting (correctness).
 Faster Paste of long lines
 Undo (Maybe too ambitious?)
 Multiline comments

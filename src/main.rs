@@ -375,9 +375,9 @@ impl<T> EditorConfig<T>
     // the string is still open.
     fn update_highlights_string(cells: &mut [Cell],
                                 start_quote: char,
-                                index: usize)
+                                start_index: usize)
                                 -> (usize, bool) {
-        let mut index = index;
+        let mut index = start_index;
         macro_rules! update_and_advance {
             ($highlight_expression:expr) => {
                  cells[index].hl = $highlight_expression;
@@ -411,7 +411,7 @@ impl<T> EditorConfig<T>
                 }
                 row.open_quote = None;
                 let mut cells = &mut row.cells;
-                if cells.len() == 0 {
+                if cells.is_empty() {
                     row.open_quote = prev_open_quote;
                     if prev_open_quote.is_some() {
                         update_next = true;
@@ -490,7 +490,7 @@ impl<T> EditorConfig<T>
                     }
                 }
             } else {
-                for cell in row.cells.iter_mut() {
+                for cell in &mut row.cells {
                     cell.hl = EditorHighlight::Normal
                 }
             }

@@ -36,9 +36,9 @@ struct FakeStdin {
 
 impl io::Read for FakeStdin {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        for i in 0..buf.len() {
+        for (i, elem) in buf.iter_mut().enumerate() {
             match self.backward_contents.pop() {
-                Some(b) => buf[i] = b,
+                Some(b) => *elem = b,
                 None => return Ok(i),
             }
         }

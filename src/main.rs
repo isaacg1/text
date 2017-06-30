@@ -608,6 +608,19 @@ impl<T> EditorConfig<T>
         self.modified = true;
     }
 
+    fn insert_tab(&mut self) {
+        if self.cursor_y == self.rows.len() {
+            self.rows.push(Row { cells: Vec::new(), open_quote: None });
+        }
+        for _ in 0..4-self.cursor_x%4 {
+            self.rows[self.cursor_y].cells.insert(self.cursor_x, Cell { chr: ' ', hl: EditorHighlight::Normal});
+            self.cursor_x += 1;
+        }
+        let index = self.cursor_y;
+        self.update_row_highlights(index);
+        self.modified = true;
+    }
+
     fn insert_newline(&mut self) {
         let open_quote = if let Some(prev_y) = self.cursor_y.checked_sub(1) {
             self.rows[prev_y].open_quote
@@ -1260,7 +1273,7 @@ impl<T> EditorConfig<T>
                 EditorKey::Verbatim(_) if self.folds.contains_key(&self.cursor_y) => {
                     self.set_status_message(DONT_EDIT_FOLDS);
                 }
-                EditorKey::Verbatim(chr) if chr == '\r' => self.insert_newline(),
+                EditorKey::Verbatim('\r') => self.insert_newline(),
                 EditorKey::Delete => {
                     if self.folds.contains_key(&(self.cursor_y + 1)) &&
                        self.cursor_x == self.rows[self.cursor_y].cells.len() {
@@ -1274,6 +1287,7 @@ impl<T> EditorConfig<T>
                     self.delete_char()
                 }
                 EditorKey::Verbatim(chr) if chr == ctrl_key('k') => self.delete_row(),
+                EditorKey::Verbatim('\t') => self.insert_tab(),
                 EditorKey::Verbatim(chr) => self.insert_char(chr),
             };
             self.quit_times = 3;

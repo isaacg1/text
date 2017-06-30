@@ -472,3 +472,19 @@ fn goto() {
     assert_eq!(3, mock.cursor_y);
     assert_eq!(0, mock.cursor_x);
 }
+
+#[test]
+fn insert_tab() {
+    let keys = "\t\x1b[C a\t";
+    let mut mock = mock_editor_with_input(keys);
+
+    for _ in 0..4 {
+        println!("x, y: {} {}", mock.cursor_x, mock.cursor_y);
+        let keypress = mock.read_key();
+        mock.process_keypress(keypress);
+    }
+
+    let out_test = "    
+a   ";
+    assert_eq!(out_test, mock.all_text());
+}

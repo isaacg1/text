@@ -22,8 +22,6 @@ use std::ascii::AsciiExt;
 use std::os::raw::c_int;
 use termios::Termios;
 
-/// * testing **
-// mod tests;
 /// * utility **
 
 const IED_VERSION: &'static str = "0.2.0";
@@ -882,6 +880,7 @@ impl<T> EditorConfig<T>
                 self.col_offset = saved_col_offset;
                 self.row_offset = saved_row_offset;
                 self.folds = saved_folds;
+                self.saved_search = "".to_string();
             }
             Some(search) => {
                 self.saved_search = search.clone();
@@ -1722,8 +1721,7 @@ mod tests {
             mock.process_keypress(keypress);
         }
 
-        assert_eq!("We say Hi!\nOk, bye.",
-                   mock.all_text())
+        assert_eq!("We say Hi!\nOk, bye.", mock.all_text())
     }
 
     #[test]
@@ -1783,12 +1781,39 @@ mod tests {
         let mut mock = mock_editor_with_input(keys);
 
         for _ in 0..4 {
-            println!("x, y: {} {}", mock.cursor_x, mock.cursor_y);
             let keypress = mock.read_key();
             mock.process_keypress(keypress);
         }
 
         let out_test = "    \na   ";
         assert_eq!(out_test, mock.all_text());
+    }
+
+    #[test]
+    fn clear_find_after_esc() {
+        let text = "a\nab\nc\nabc";
+        // Ctrl-f, ab, enter, Ctrl-f, ArrowRight, Esc, Ctrl-f, c, enter
+        let keys = "\x06ab\r\x06\x1b[C \x1b   \x06c\r";
+        let mut mock = mock_editor_with_input(keys);
+        mock.load_text(text);
+
+        // Search for ab
+        let keypress = mock.read_key();
+        mock.process_keypress(keypress);
+        assert_eq!(1, mock.cursor_y);
+        assert_eq!("ab", mock.saved_search);
+
+        // Clear the search
+        let keypress = mock.read_key();
+        mock.process_keypress(keypress);
+        assert_eq!(1, mock.cursor_y);
+        assert_eq!("", mock.saved_search);
+
+        // Search for c
+        let keypress = mock.read_key();
+        mock.process_keypress(keypress);
+        assert_eq!(2, mock.cursor_y);
+
+        assert_eq!(mock.all_text(), text);
     }
 }

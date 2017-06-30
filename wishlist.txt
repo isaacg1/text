@@ -1,8 +1,6 @@
 Todo:
 Autocomplete (Maybe too ambitious?)
 Cut, Copy, Paste
- - Toggle paste mode, which turns off syntax highlighting (speed) and intenting (correctness).
-Faster Paste of long lines
 Undo (Maybe too ambitious?)
 Multiline comments
 Autointent/Dedent chars
@@ -20,3 +18,4 @@ Remove direct array addressing.
 On Ctrl-F after Enter, start with old value.
 Multiline strings
 Bug with " at line end
+ - Toggle paste mode, and indenting (correctness).

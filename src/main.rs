@@ -78,6 +78,7 @@ struct EditorConfig<T: Read> {
     folds: HashMap<usize, (usize, usize)>,
     input_source: T,
     saved_search: String,
+    paste_mode: bool,
 }
 
 #[derive(Copy, Clone)]
@@ -240,6 +241,7 @@ impl<T> EditorConfig<T>
                 folds: HashMap::new(),
                 input_source: io::stdin(),
                 saved_search: String::new(),
+                paste_mode: false,
             }
         }
     }
@@ -288,6 +290,11 @@ impl<T> EditorConfig<T>
             .or(fold_fold_failure)
     }
 
+    /// * paste mode **
+
+    fn toggle_paste_mode(&mut self) {
+        self.paste_mode = !self.paste_mode;
+    }
 
     /// * folding **
 
@@ -638,7 +645,11 @@ impl<T> EditorConfig<T>
         };
 
         if self.cursor_y < self.rows.len() {
-            let depth = whitespace_depth(&self.rows[self.cursor_y]);
+            let depth = if self.paste_mode {
+                0
+            } else {
+                whitespace_depth(&self.rows[self.cursor_y])
+            };
             // If in the whitespace, insert blank line.
             if depth >= self.cursor_x {
                 self.rows
@@ -1280,6 +1291,7 @@ impl<T> EditorConfig<T>
                 EditorKey::Verbatim(chr) if chr == ctrl_key('f') => self.find(),
                 EditorKey::Verbatim(chr) if chr == ctrl_key('g') => self.go_to(),
                 EditorKey::Verbatim(chr) if chr == ctrl_key(' ') => self.toggle_fold(),
+                EditorKey::Verbatim(chr) if chr == ctrl_key('p') => self.toggle_paste_mode(),
                 // Editing commands
                 EditorKey::Delete |
                 EditorKey::Verbatim(_) if self.folds.contains_key(&self.cursor_y) => {
@@ -1319,7 +1331,7 @@ fn run() {
             .expect("Opening file failed")
     }
     editor_config.set_status_message("Help: C-s save, C-q quit, C-f find, \
-                       C-' ' fold, C-e refresh, C-k del row, C-g go to.");
+        C-' ' fold, C-e refresh, C-k del row, C-g go to, C-p paste mode.");
     loop {
         editor_config.warn_consistency();
         editor_config.refresh_screen();
@@ -1366,6 +1378,7 @@ mod tests {
             folds: HashMap::new(),
             input_source: io::empty(),
             saved_search: String::new(),
+            paste_mode: false,
         }
     }
 
@@ -1411,6 +1424,7 @@ mod tests {
             folds: HashMap::new(),
             input_source: FakeStdin::new(input.as_bytes()),
             saved_search: String::new(),
+            paste_mode: false,
         }
     }
 

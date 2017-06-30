@@ -1021,7 +1021,8 @@ impl<T> EditorConfig<T>
             .unwrap_or_else(|| "[No Name]".to_string());
         name.truncate(20);
         let dirty = if self.modified { "(modified)" } else { "" };
-        let mut status = format!("{} {}", name, dirty);
+        let paste = if self.paste_mode { "(paste)" } else { "" };
+        let mut status = format!("{} {} {}", name, dirty, paste);
         status.truncate(self.screen_cols);
         append_buffer.push_str(&status);
         let filetype = match self.syntax {

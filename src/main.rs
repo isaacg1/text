@@ -460,15 +460,14 @@ impl<T> EditorConfig<T>
                             while index < cells.len() && cells[index].chr.is_digit(10) {
                                 update_and_advance!(EditorHighlight::Number);
                             }
-                        } else if cells_to_string(&cells[index..].to_vec())
+                        } else if cells_to_string(&cells[index..])
                                       .starts_with(&syntax.singleline_comment) {
                             while index < cells.len() {
                                 update_and_advance!(EditorHighlight::Comment);
                             }
                         } else {
                             if index == 0 || is_separator(cells[index - 1].chr) {
-                                let following_string: String = cells_to_string(&cells[index..]
-                                                                                    .to_vec());
+                                let following_string: String = cells_to_string(&cells[index..]);
                                 for (keywords, &highlight) in
                                     syntax
                                         .keywords
@@ -891,7 +890,7 @@ impl<T> EditorConfig<T>
                 self.saved_search = "".to_string();
             }
             Some(search) => {
-                self.saved_search = search.clone();
+                self.saved_search = search;
             }
         }
     }
@@ -1023,8 +1022,8 @@ impl<T> EditorConfig<T>
         status.truncate(self.screen_cols);
         append_buffer.push_str(&status);
         let filetype = match self.syntax {
-            None => "no ft".to_string(),
-            Some(ref syntax) => syntax.filetype.clone(),
+            None => "no ft",
+            Some(ref syntax) => &syntax.filetype,
         };
         let mut right_status = format!("{} | r: {}/{}, c: {}/{}",
                                        filetype,

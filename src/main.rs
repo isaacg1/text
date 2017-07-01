@@ -1,6 +1,6 @@
 #![allow(unknown_lints)]
 #![warn(clippy_pedantic)]
-#![allow(print_stdout, missing_docs_in_private_items, string_add)]
+#![allow(print_stdout, missing_docs_in_private_items)]
 extern crate termios;
 extern crate libc;
 
@@ -104,7 +104,8 @@ enum EditorHighlight {
 
 impl EditorHighlight {
     fn color(&self) -> String {
-        REVERT_COLORS.to_owned() +
+        let mut color_string = REVERT_COLORS.to_owned();
+        color_string.push_str(
             match *self {
                 EditorHighlight::Normal => "",
                 EditorHighlight::Number => RED,
@@ -115,7 +116,8 @@ impl EditorHighlight {
                 EditorHighlight::Keyword2 => GREEN,
                 EditorHighlight::Keyword3 => BRIGHT_GREEN,
                 EditorHighlight::Keyword4 => BRIGHT_YELLOW,
-            }
+            });
+        color_string
     }
 }
 

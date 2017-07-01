@@ -1443,7 +1443,7 @@ fn main() {
 mod tests {
     use super::*;
 
-    fn mock_editor() -> EditorConfig<io::Empty> {
+    fn mock_editor(input: Option<&str>) -> EditorConfig<Box<io::Read>> {
         EditorConfig {
             filename: None,
             screen_rows: 10,
@@ -1459,7 +1459,7 @@ mod tests {
             quit_times: 3,
             syntax: None,
             folds: HashMap::new(),
-            input_source: io::empty(),
+            input_source: input.map_or(Box::new(io::empty()), |text| Box::new(FakeStdin::new(text.as_bytes()))),
             saved_search: String::new(),
             paste_mode: false,
         }
@@ -1489,31 +1489,9 @@ mod tests {
         }
     }
 
-    fn mock_editor_with_input(input: &str) -> EditorConfig<FakeStdin> {
-        EditorConfig {
-            filename: None,
-            screen_rows: 10,
-            screen_cols: 10,
-            rows: vec![],
-            row_offset: 0,
-            col_offset: 0,
-            cursor_x: 0,
-            cursor_y: 0,
-            status_message: String::new(),
-            status_message_time: Instant::now(),
-            modified: false,
-            quit_times: 3,
-            syntax: None,
-            folds: HashMap::new(),
-            input_source: FakeStdin::new(input.as_bytes()),
-            saved_search: String::new(),
-            paste_mode: false,
-        }
-    }
-
     #[test]
     fn empty_text() {
-        let mock = mock_editor();
+        let mock = mock_editor(None);
         let text = mock.all_text();
         assert_eq!(text, "");
         assert_eq!(None, mock.check_consistency())
@@ -1521,7 +1499,7 @@ mod tests {
 
     #[test]
     fn line_roundtrip() {
-        let mut mock = mock_editor();
+        let mut mock = mock_editor(None);
         let line = "Hello, world";
 
         mock.load_text(line);
@@ -1533,7 +1511,7 @@ mod tests {
 
     #[test]
     fn lines_roundtrip() {
-        let mut mock = mock_editor();
+        let mut mock = mock_editor(None);
         let lines = "This\n    might\n    or might not\n    work.\n    \n";
 
         mock.load_text(lines);
@@ -1547,7 +1525,7 @@ mod tests {
     fn simple_typing() {
         let typed_text = "Hello, world!";
 
-        let mut mock = mock_editor();
+        let mut mock = mock_editor(None);
         for c in typed_text.chars() {
             mock.process_keypress(EditorKey::Verbatim(c));
         }
@@ -1560,7 +1538,7 @@ mod tests {
     fn reversed_typing() {
         let typed_text = "Hello, world!";
 
-        let mut mock = mock_editor();
+        let mut mock = mock_editor(None);
         for c in typed_text.chars() {
             mock.process_keypress(EditorKey::Verbatim(c));
             mock.process_keypress(EditorKey::ArrowLeft);
@@ -1576,7 +1554,7 @@ mod tests {
     fn newline_typing() {
         let text = "Hello, world!";
 
-        let mut mock = mock_editor();
+        let mut mock = mock_editor(None);
         mock.load_text(text);
 
         for _ in 0..3 {
@@ -1590,7 +1568,7 @@ mod tests {
 
     #[test]
     fn moving_around() {
-        let mut mock = mock_editor();
+        let mut mock = mock_editor(None);
 
         mock.process_keypress(EditorKey::ArrowUp);
         assert_eq!(None, mock.check_consistency());
@@ -1608,7 +1586,7 @@ mod tests {
     println!(\"Hello, world!\\\"\");
     123 // 123
 }";
-        let mut mock = mock_editor();
+        let mut mock = mock_editor(None);
         mock.filename = Some("main.rs".to_string());
         mock.select_syntax();
 
@@ -1653,7 +1631,7 @@ mod tests {
     Middle
     End\" Done";
 
-        let mut mock = mock_editor();
+        let mut mock = mock_editor(None);
         mock.filename = Some("main.rs".to_string());
         mock.select_syntax();
 
@@ -1681,7 +1659,7 @@ mod tests {
     fn temporary_multiline_string() {
         let text = "\"\na";
 
-        let mut mock = mock_editor();
+        let mut mock = mock_editor(None);
         mock.filename = Some("main.rs".to_string());
         mock.select_syntax();
 
@@ -1696,7 +1674,7 @@ mod tests {
     fn multiline_string_with_blank_line() {
         let text = "\"\n\na";
 
-        let mut mock = mock_editor();
+        let mut mock = mock_editor(None);
         mock.filename = Some("main.rs".to_string());
         mock.select_syntax();
 
@@ -1709,7 +1687,7 @@ mod tests {
     fn string_ending_at_eol() {
         let text = "\"Hi!\"\na";
 
-        let mut mock = mock_editor();
+        let mut mock = mock_editor(None);
         mock.filename = Some("main.rs".to_string());
         mock.select_syntax();
         mock.load_text(text);
@@ -1721,7 +1699,7 @@ mod tests {
     fn fold_last_row_delete_char() {
         let text = "a\nb\n c";
 
-        let mut mock = mock_editor();
+        let mut mock = mock_editor(None);
         mock.load_text(text);
 
         assert_eq!(mock.rows.len(), 3);
@@ -1744,7 +1722,7 @@ mod tests {
     fn fold_last_row_delete_row() {
         let text = "a\n b";
 
-        let mut mock = mock_editor();
+        let mut mock = mock_editor(None);
         mock.load_text(text);
 
         mock.process_keypress(EditorKey::ArrowDown);
@@ -1758,7 +1736,7 @@ mod tests {
     #[test]
     fn fold_next_to_empty_line() {
         let text = "\na\n";
-        let mut mock = mock_editor();
+        let mut mock = mock_editor(None);
         mock.load_text(text);
 
         mock.process_keypress(EditorKey::ArrowDown);
@@ -1770,7 +1748,7 @@ mod tests {
     fn fold_wraparound() {
         let text = "a\n b\n c\nd";
 
-        let mut mock = mock_editor();
+        let mut mock = mock_editor(None);
         mock.load_text(text);
 
         mock.process_keypress(EditorKey::ArrowDown);
@@ -1791,11 +1769,11 @@ mod tests {
     fn fold_all() {
         let text = "a\n  b\n c\nd\n e\n f";
 
-        let mut mock1 = mock_editor();
+        let mut mock1 = mock_editor(None);
         mock1.load_text(text);
         mock1.process_keypress(EditorKey::Verbatim(ctrl_key(' ')));
 
-        let mut mock2 = mock_editor();
+        let mut mock2 = mock_editor(None);
         mock2.load_text(text);
         mock2.process_keypress(EditorKey::ArrowDown);
         mock2.process_keypress(EditorKey::Verbatim(ctrl_key(' ')));
@@ -1810,7 +1788,7 @@ mod tests {
     #[test]
     fn read_key_escapes() {
         let keys = "Hi!\x1b[1~I say \x1b[4~\rOk, bye.\x1b[5~\x1b[7~\x1b[3~We\x11";
-        let mut mock = mock_editor_with_input(keys);
+        let mut mock = mock_editor(Some(keys));
         while mock.quit_times == 3 {
             let keypress = mock.read_key();
             mock.process_keypress(keypress);
@@ -1823,7 +1801,7 @@ mod tests {
     fn find_no_text() {
         let keys = "\x06me\r";
 
-        let mut mock = mock_editor_with_input(keys);
+        let mut mock = mock_editor(Some(keys));
 
         let keypress = mock.read_key();
         mock.process_keypress(keypress);
@@ -1835,7 +1813,7 @@ mod tests {
 
         let keys = "\x06me\r";
 
-        let mut mock = mock_editor_with_input(keys);
+        let mut mock = mock_editor(Some(keys));
 
         mock.load_text(text);
 
@@ -1861,7 +1839,7 @@ mod tests {
         // Ctrl-g 4 Enter
         let keys = "\x074\r";
 
-        let mut mock = mock_editor_with_input(keys);
+        let mut mock = mock_editor(Some(keys));
 
         mock.load_text(text);
         let keypress = mock.read_key();
@@ -1874,7 +1852,7 @@ mod tests {
     #[test]
     fn insert_tab() {
         let keys = "\t\x1b[C a\t";
-        let mut mock = mock_editor_with_input(keys);
+        let mut mock = mock_editor(Some(keys));
 
         for _ in 0..4 {
             let keypress = mock.read_key();
@@ -1890,7 +1868,7 @@ mod tests {
         let text = "a\nab\nc\nabc";
         // Ctrl-f, ab, enter, Ctrl-f, ArrowRight, Esc, Ctrl-f, c, enter
         let keys = "\x06ab\r\x06\x1b[C \x1b   \x06c\r";
-        let mut mock = mock_editor_with_input(keys);
+        let mut mock = mock_editor(Some(keys));
         mock.load_text(text);
 
         // Search for ab

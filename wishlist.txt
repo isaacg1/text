@@ -18,4 +18,4 @@ Remove direct array addressing.
 On Ctrl-F after Enter, start with old value.
 Multiline strings
 Bug with " at line end
- - Toggle paste mode, and indenting (correctness).
+Toggle paste mode, and indenting (correctness).

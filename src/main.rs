@@ -818,7 +818,9 @@ where
 
     /// * file i/o **
     fn open(&mut self) -> io::Result<()> {
-        let filename = self.filename.clone().expect("To open, filename must be set.");
+        let filename = self.filename.clone().expect(
+            "To open, filename must be set.",
+        );
         self.select_syntax();
 
         if !Path::new(&filename).exists() {
@@ -1429,7 +1431,8 @@ fn run() {
 fn main() {
     let orig_termios = enable_raw_mode().expect("Enabling raw mode failed");
 
-    // Main program is run in a separate thread so that we can recover well from errors.
+    // Main program is run in such away that we can catch panics and recover.
+    // Panics should not be normal control flow, but this is nicer in the face of bugs.
     let run_result = catch_unwind(run);
     restore_orig_mode(&orig_termios).expect("Disabling raw mode failed");
     run_result.expect("Editor loop panicked");
@@ -1459,7 +1462,9 @@ mod tests {
             quit_times: 3,
             syntax: None,
             folds: HashMap::new(),
-            input_source: input.map_or(Box::new(io::empty()), |text| Box::new(FakeStdin::new(text.as_bytes()))),
+            input_source: input.map_or(Box::new(io::empty()), |text| {
+                Box::new(FakeStdin::new(text.as_bytes()))
+            }),
             saved_search: String::new(),
             paste_mode: false,
         }

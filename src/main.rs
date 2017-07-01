@@ -369,18 +369,15 @@ where
     }
 
     fn one_row_back(&self, index: usize) -> usize {
-        if let Some(prev_index) = index.checked_sub(1) {
-            if let Some((&start, _end_and_depth)) =
-                self.folds.iter().find(|&(_start, &(end, _depth))| {
-                    end == prev_index
-                })
-            {
-                start
-            } else {
-                prev_index
-            }
+        let prev_index = index.saturating_sub(1);
+        if let Some((&start, _end_and_depth)) =
+            self.folds.iter().find(|&(_start, &(end, _depth))| {
+                end == prev_index
+            })
+        {
+            start
         } else {
-            0
+            prev_index
         }
     }
 
@@ -1249,7 +1246,7 @@ where
             EditorKey::ArrowLeft => {
                 if let Some(prev_x) = self.cursor_x.checked_sub(1) {
                     self.cursor_x = prev_x
-                } else {
+                } else if self.cursor_y > 0 {
                     self.cursor_y = self.one_row_back(self.cursor_y);
                     self.cursor_x = self.current_row_len();
                 }
@@ -1892,5 +1889,18 @@ mod tests {
         assert_eq!(2, mock.cursor_y);
 
         assert_eq!(mock.all_text(), text);
+    }
+
+    #[test]
+    fn scroll_left_at_start_of_file() {
+        let text = "Hi!";
+        let keys = "\x1b[D ";
+        let mut mock = mock_editor(Some(keys));
+        mock.load_text(text);
+
+        let keypress = mock.read_key();
+        mock.process_keypress(keypress);
+        assert_eq!(0, mock.cursor_x);
+        assert_eq!(0, mock.cursor_y);
     }
 }

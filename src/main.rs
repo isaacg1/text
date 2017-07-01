@@ -1169,7 +1169,7 @@ where
             self.set_status_message(&format!("{}{}", prompt, response));
             self.refresh_screen();
 
-            let c = self.read_key();
+            let c = EditorConfig::<T>::read_key(&mut self.input_source);
             macro_rules! maybe_callback {
                 () => {
                     if let Some(callback) = callback {
@@ -1277,13 +1277,13 @@ where
         self.cursor_x = min(self.cursor_x, self.current_row_len());
     }
 
-    fn read_key(&mut self) -> EditorKey {
+    fn read_key(input_source: &mut io::Read) -> EditorKey {
         let mut buffer: [u8; 1] = [0];
-        while self.input_source.read(&mut buffer).expect("Read failure") == 0 {}
+        while input_source.read(&mut buffer).expect("Read failure") == 0 {}
         let c = buffer[0] as char;
         if c == '\x1b' {
             let mut escape_buf: [u8; 3] = [0; 3];
-            match self.input_source.read(&mut escape_buf).expect(
+            match input_source.read(&mut escape_buf).expect(
                 "Read failure during escape sequence",
             ) {
                 2 | 3 => {
@@ -1415,7 +1415,7 @@ fn run() {
     loop {
         editor_config.warn_consistency();
         editor_config.refresh_screen();
-        let keypress = editor_config.read_key();
+        let keypress = EditorConfig::<io::Stdin>::read_key(&mut editor_config.input_source);
         let to_continue = editor_config.process_keypress(keypress);
         if !to_continue {
             break;
@@ -1790,7 +1790,7 @@ mod tests {
         let keys = "Hi!\x1b[1~I say \x1b[4~\rOk, bye.\x1b[5~\x1b[7~\x1b[3~We\x11";
         let mut mock = mock_editor(Some(keys));
         while mock.quit_times == 3 {
-            let keypress = mock.read_key();
+            let keypress = EditorConfig::<Box<io::Read>>::read_key(&mut mock.input_source);
             mock.process_keypress(keypress);
         }
 
@@ -1802,8 +1802,7 @@ mod tests {
         let keys = "\x06me\r";
 
         let mut mock = mock_editor(Some(keys));
-
-        let keypress = mock.read_key();
+        let keypress = EditorConfig::<Box<io::Read>>::read_key(&mut mock.input_source);
         mock.process_keypress(keypress);
     }
 
@@ -1816,8 +1815,7 @@ mod tests {
         let mut mock = mock_editor(Some(keys));
 
         mock.load_text(text);
-
-        let keypress = mock.read_key();
+        let keypress = EditorConfig::<Box<io::Read>>::read_key(&mut mock.input_source);
         mock.process_keypress(keypress);
 
         // Indicates the position of the match.
@@ -1842,7 +1840,7 @@ mod tests {
         let mut mock = mock_editor(Some(keys));
 
         mock.load_text(text);
-        let keypress = mock.read_key();
+        let keypress = EditorConfig::<Box<io::Read>>::read_key(&mut mock.input_source);
         mock.process_keypress(keypress);
 
         assert_eq!(3, mock.cursor_y);
@@ -1855,7 +1853,7 @@ mod tests {
         let mut mock = mock_editor(Some(keys));
 
         for _ in 0..4 {
-            let keypress = mock.read_key();
+            let keypress = EditorConfig::<Box<io::Read>>::read_key(&mut mock.input_source);
             mock.process_keypress(keypress);
         }
 
@@ -1872,19 +1870,19 @@ mod tests {
         mock.load_text(text);
 
         // Search for ab
-        let keypress = mock.read_key();
+        let keypress = EditorConfig::<Box<io::Read>>::read_key(&mut mock.input_source);
         mock.process_keypress(keypress);
         assert_eq!(1, mock.cursor_y);
         assert_eq!("ab", mock.saved_search);
 
         // Clear the search
-        let keypress = mock.read_key();
+        let keypress = EditorConfig::<Box<io::Read>>::read_key(&mut mock.input_source);
         mock.process_keypress(keypress);
         assert_eq!(1, mock.cursor_y);
         assert_eq!("", mock.saved_search);
 
         // Search for c
-        let keypress = mock.read_key();
+        let keypress = EditorConfig::<Box<io::Read>>::read_key(&mut mock.input_source);
         mock.process_keypress(keypress);
         assert_eq!(2, mock.cursor_y);
 
@@ -1898,7 +1896,7 @@ mod tests {
         let mut mock = mock_editor(Some(keys));
         mock.load_text(text);
 
-        let keypress = mock.read_key();
+        let keypress = EditorConfig::<Box<io::Read>>::read_key(&mut mock.input_source);
         mock.process_keypress(keypress);
         assert_eq!(0, mock.cursor_x);
         assert_eq!(0, mock.cursor_y);

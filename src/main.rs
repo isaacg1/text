@@ -147,6 +147,139 @@ struct EditorSyntax {
     keywords: [Vec<String>; 4],
 }
 
+impl EditorSyntax {
+    fn for_filename(filename: &str) -> Option<EditorSyntax> {
+        let syntax_database = vec![
+            EditorSyntax {
+                filetype: "rust".to_string(),
+                extensions: vec![".rs".to_string()],
+                has_digits: true,
+                quotes: "\"".to_string(),
+                singleline_comment: "//".to_string(),
+                keywords: [
+                    vec![
+                        "alignof",
+                        "as",
+                        "break",
+                        "continue",
+                        "crate",
+                        "else",
+                        "extern",
+                        "fn",
+                        "for",
+                        "if",
+                        "impl",
+                        "in",
+                        "let",
+                        "loop",
+                        "macro",
+                        "match",
+                        "mod",
+                        "offsetof",
+                        "pub",
+                        "return",
+                        "sizeof",
+                        "trait",
+                        "typeof",
+                        "unsafe",
+                        "use",
+                        "where",
+                        "while",
+                        "yield",
+                    ].iter()
+                        .map(|x| x.to_string())
+                        .collect::<Vec<_>>(),
+                    vec![
+                        "box",
+                        "mut",
+                        "const",
+                        "enum",
+                        "ref",
+                        "static",
+                        "struct",
+                        "type",
+                    ].iter()
+                        .map(|x| x.to_string())
+                        .collect::<Vec<_>>(),
+                    vec!["false", "self", "Self", "super", "true"]
+                        .iter()
+                        .map(|x| x.to_string())
+                        .collect::<Vec<_>>(),
+                    vec![
+                        "bool",
+                        "char",
+                        "i8",
+                        "i16",
+                        "i32",
+                        "i64",
+                        "isize",
+                        "f32",
+                        "f64",
+                        "str",
+                        "u8",
+                        "u16",
+                        "u32",
+                        "u64",
+                        "usize",
+                    ].iter()
+                        .map(|x| x.to_string())
+                        .collect::<Vec<_>>(),
+                ],
+            },
+            EditorSyntax {
+                filetype: "c".to_string(),
+                extensions: vec![".c".to_string(), ".h".to_string(), ".cpp".to_string()],
+                has_digits: true,
+                quotes: "\"'".to_string(),
+                singleline_comment: "//".to_string(),
+                keywords: [vec![], vec![], vec![], vec![]],
+            },
+            EditorSyntax {
+                filetype: "py".to_string(),
+                extensions: vec![".py".to_string()],
+                has_digits: true,
+                quotes: "\"'".to_string(),
+                singleline_comment: "#".to_string(),
+                keywords: [
+                    vec![
+                        "break",
+                        "continue",
+                        "def",
+                        "elif",
+                        "else",
+                        "for",
+                        "from",
+                        "if",
+                        "import",
+                        "in",
+                        "return",
+                        "while",
+                    ].iter()
+                        .map(|x| x.to_string())
+                        .collect::<Vec<_>>(),
+                    vec!["any", "abs", "input", "int", "len", "range", "print", "zip"]
+                        .iter()
+                        .map(|x| x.to_string())
+                        .collect::<Vec<_>>(),
+                    vec!["False", "True"]
+                        .iter()
+                        .map(|x| x.to_string())
+                        .collect::<Vec<_>>(),
+                    vec!["and", "not", "or"]
+                        .iter()
+                        .map(|x| x.to_string())
+                        .collect::<Vec<_>>(),
+                ],
+            },
+        ];
+        syntax_database.into_iter().find(|entry| {
+            entry.extensions.iter().any(|extension| {
+                filename.ends_with(extension)
+            })
+        })
+    }
+}
+
 /// * terminal **
 fn enable_raw_mode() -> io::Result<Termios> {
     use termios::*;
@@ -208,6 +341,84 @@ fn string_to_row(s: &str) -> Row {
         open_quote: None,
     }
 }
+
+fn update_highlights_string(
+    cells: &mut [Cell],
+    start_quote: char,
+    start_index: usize,
+) -> (usize, bool) {
+    let mut index = start_index;
+    macro_rules! update_and_advance {
+            ($highlight_expression:expr) => {
+                 cells[index].hl = $highlight_expression;
+                 index += 1;
+            }
+        }
+
+    while index < cells.len() {
+        if cells[index].chr == start_quote {
+            update_and_advance!(EditorHighlight::String);
+            return (index, false);
+        }
+        if cells[index].chr == '\\' && index + 1 < cells.len() {
+            update_and_advance!(EditorHighlight::String);
+        }
+        update_and_advance!(EditorHighlight::String);
+    }
+    (index, true)
+}
+
+
+/// * i/o **
+
+fn read_key(input_source: &mut io::Read) -> EditorKey {
+    let mut buffer: [u8; 1] = [0];
+    while input_source.read(&mut buffer).expect("Read failure") == 0 {}
+    let c = buffer[0] as char;
+    if c == '\x1b' {
+        let mut escape_buf: [u8; 3] = [0; 3];
+        match input_source.read(&mut escape_buf).expect(
+            "Read failure during escape sequence",
+        ) {
+            2 | 3 => {
+                if escape_buf[0] as char == '[' {
+                    if escape_buf[2] as char == '~' {
+                        match escape_buf[1] as char {
+                            '1' | '7' => Some(EditorKey::Home),
+                            '3' => Some(EditorKey::Delete),
+                            '4' | '8' => Some(EditorKey::End),
+                            '5' => Some(EditorKey::PageUp),
+                            '6' => Some(EditorKey::PageDown),
+                            _ => None,
+                        }
+                    } else {
+                        match escape_buf[1] as char {
+                            'A' => Some(EditorKey::ArrowUp),
+                            'B' => Some(EditorKey::ArrowDown),
+                            'C' => Some(EditorKey::ArrowRight),
+                            'D' => Some(EditorKey::ArrowLeft),
+                            'H' => Some(EditorKey::Home),
+                            'F' => Some(EditorKey::End),
+                            _ => None,
+                        }
+                    }
+                } else if escape_buf[0] as char == 'O' {
+                    match escape_buf[1] as char {
+                        'H' => Some(EditorKey::Home),
+                        'F' => Some(EditorKey::End),
+                        _ => None,
+                    }
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    } else {
+        None
+    }.unwrap_or_else(|| EditorKey::Verbatim(c))
+}
+
 
 impl<T> EditorConfig<T>
 where
@@ -392,31 +603,6 @@ where
 
     // Assumes that index is past the open quote, returns final position of index, whether
     // the string is still open.
-    fn update_highlights_string(
-        cells: &mut [Cell],
-        start_quote: char,
-        start_index: usize,
-    ) -> (usize, bool) {
-        let mut index = start_index;
-        macro_rules! update_and_advance {
-            ($highlight_expression:expr) => {
-                 cells[index].hl = $highlight_expression;
-                 index += 1;
-            }
-        }
-
-        while index < cells.len() {
-            if cells[index].chr == start_quote {
-                update_and_advance!(EditorHighlight::String);
-                return (index, false);
-            }
-            if cells[index].chr == '\\' && index + 1 < cells.len() {
-                update_and_advance!(EditorHighlight::String);
-            }
-            update_and_advance!(EditorHighlight::String);
-        }
-        (index, true)
-    }
 
     fn update_row_highlights(&mut self, row_index: usize) {
         let prev_open_quote: Option<char> = row_index
@@ -449,11 +635,7 @@ where
                         if index == 0 && prev_open_quote.is_some() {
                             let active_quote = prev_open_quote.expect("Just checked_it");
                             let (new_index, is_open) =
-                                EditorConfig::<T>::update_highlights_string(
-                                    cells,
-                                    active_quote,
-                                    index,
-                                );
+                                update_highlights_string(cells, active_quote, index);
                             index = new_index;
                             if is_open {
                                 row.open_quote = Some(active_quote);
@@ -463,11 +645,7 @@ where
                             let start_quote = cells[index].chr;
                             update_and_advance!(EditorHighlight::String);
                             let (new_index, is_open) =
-                                EditorConfig::<T>::update_highlights_string(
-                                    cells,
-                                    start_quote,
-                                    index,
-                                );
+                                update_highlights_string(cells, start_quote, index);
                             index = new_index;
                             if is_open {
                                 row.open_quote = Some(start_quote);
@@ -528,142 +706,14 @@ where
         }
     }
 
-    fn select_syntax(&mut self) {
-        self.syntax = self.filename.as_ref().and_then(|filename| {
-            let syntax_database = vec![
-                EditorSyntax {
-                    filetype: "rust".to_string(),
-                    extensions: vec![".rs".to_string()],
-                    has_digits: true,
-                    quotes: "\"".to_string(),
-                    singleline_comment: "//".to_string(),
-                    keywords: [
-                        vec![
-                            "alignof",
-                            "as",
-                            "break",
-                            "continue",
-                            "crate",
-                            "else",
-                            "extern",
-                            "fn",
-                            "for",
-                            "if",
-                            "impl",
-                            "in",
-                            "let",
-                            "loop",
-                            "macro",
-                            "match",
-                            "mod",
-                            "offsetof",
-                            "pub",
-                            "return",
-                            "sizeof",
-                            "trait",
-                            "typeof",
-                            "unsafe",
-                            "use",
-                            "where",
-                            "while",
-                            "yield",
-                        ].iter()
-                            .map(|x| x.to_string())
-                            .collect::<Vec<_>>(),
-                        vec![
-                            "box",
-                            "mut",
-                            "const",
-                            "enum",
-                            "ref",
-                            "static",
-                            "struct",
-                            "type",
-                        ].iter()
-                            .map(|x| x.to_string())
-                            .collect::<Vec<_>>(),
-                        vec!["false", "self", "Self", "super", "true"]
-                            .iter()
-                            .map(|x| x.to_string())
-                            .collect::<Vec<_>>(),
-                        vec![
-                            "bool",
-                            "char",
-                            "i8",
-                            "i16",
-                            "i32",
-                            "i64",
-                            "isize",
-                            "f32",
-                            "f64",
-                            "str",
-                            "u8",
-                            "u16",
-                            "u32",
-                            "u64",
-                            "usize",
-                        ].iter()
-                            .map(|x| x.to_string())
-                            .collect::<Vec<_>>(),
-                    ],
-                },
-                EditorSyntax {
-                    filetype: "c".to_string(),
-                    extensions: vec![".c".to_string(), ".h".to_string(), ".cpp".to_string()],
-                    has_digits: true,
-                    quotes: "\"'".to_string(),
-                    singleline_comment: "//".to_string(),
-                    keywords: [vec![], vec![], vec![], vec![]],
-                },
-                EditorSyntax {
-                    filetype: "py".to_string(),
-                    extensions: vec![".py".to_string()],
-                    has_digits: true,
-                    quotes: "\"'".to_string(),
-                    singleline_comment: "#".to_string(),
-                    keywords: [
-                        vec![
-                            "break",
-                            "continue",
-                            "def",
-                            "elif",
-                            "else",
-                            "for",
-                            "from",
-                            "if",
-                            "import",
-                            "in",
-                            "return",
-                            "while",
-                        ].iter()
-                            .map(|x| x.to_string())
-                            .collect::<Vec<_>>(),
-                        vec!["any", "abs", "input", "int", "len", "range", "print", "zip"]
-                            .iter()
-                            .map(|x| x.to_string())
-                            .collect::<Vec<_>>(),
-                        vec!["False", "True"]
-                            .iter()
-                            .map(|x| x.to_string())
-                            .collect::<Vec<_>>(),
-                        vec!["and", "not", "or"]
-                            .iter()
-                            .map(|x| x.to_string())
-                            .collect::<Vec<_>>(),
-                    ],
-                },
-            ];
-            syntax_database.into_iter().find(|entry| {
-                entry.extensions.iter().any(|extension| {
-                    filename.ends_with(extension)
-                })
-            })
-        });
+    fn activate_syntax(&mut self) {
+        self.syntax = self.filename.as_ref().and_then(
+            |filename| EditorSyntax::for_filename(filename),
+        );
         for index in 0..self.rows.len() {
             self.update_row_highlights(index);
         }
     }
-
 
     /// * editor operations **
 
@@ -816,7 +866,7 @@ where
         let filename = self.filename.clone().expect(
             "To open, filename must be set.",
         );
-        self.select_syntax();
+        self.activate_syntax();
 
         if !Path::new(&filename).exists() {
             File::create(&filename)?;
@@ -872,7 +922,7 @@ where
                 }
                 Some(filename) => {
                     self.filename = Some(filename);
-                    self.select_syntax();
+                    self.activate_syntax();
                 }
             }
         };
@@ -1169,7 +1219,7 @@ where
             self.set_status_message(&format!("{}{}", prompt, response));
             self.refresh_screen();
 
-            let c = EditorConfig::<T>::read_key(&mut self.input_source);
+            let c = read_key(&mut self.input_source);
             macro_rules! maybe_callback {
                 () => {
                     if let Some(callback) = callback {
@@ -1277,53 +1327,6 @@ where
         self.cursor_x = min(self.cursor_x, self.current_row_len());
     }
 
-    fn read_key(input_source: &mut io::Read) -> EditorKey {
-        let mut buffer: [u8; 1] = [0];
-        while input_source.read(&mut buffer).expect("Read failure") == 0 {}
-        let c = buffer[0] as char;
-        if c == '\x1b' {
-            let mut escape_buf: [u8; 3] = [0; 3];
-            match input_source.read(&mut escape_buf).expect(
-                "Read failure during escape sequence",
-            ) {
-                2 | 3 => {
-                    if escape_buf[0] as char == '[' {
-                        if escape_buf[2] as char == '~' {
-                            match escape_buf[1] as char {
-                                '1' | '7' => Some(EditorKey::Home),
-                                '3' => Some(EditorKey::Delete),
-                                '4' | '8' => Some(EditorKey::End),
-                                '5' => Some(EditorKey::PageUp),
-                                '6' => Some(EditorKey::PageDown),
-                                _ => None,
-                            }
-                        } else {
-                            match escape_buf[1] as char {
-                                'A' => Some(EditorKey::ArrowUp),
-                                'B' => Some(EditorKey::ArrowDown),
-                                'C' => Some(EditorKey::ArrowRight),
-                                'D' => Some(EditorKey::ArrowLeft),
-                                'H' => Some(EditorKey::Home),
-                                'F' => Some(EditorKey::End),
-                                _ => None,
-                            }
-                        }
-                    } else if escape_buf[0] as char == 'O' {
-                        match escape_buf[1] as char {
-                            'H' => Some(EditorKey::Home),
-                            'F' => Some(EditorKey::End),
-                            _ => None,
-                        }
-                    } else {
-                        None
-                    }
-                }
-                _ => None,
-            }
-        } else {
-            None
-        }.unwrap_or_else(|| EditorKey::Verbatim(c))
-    }
     // Return value indicates whether we should continue processing keypresses.
     fn process_keypress(&mut self, c: EditorKey) -> bool {
         if c == EditorKey::Verbatim(ctrl_key('q')) {
@@ -1415,7 +1418,7 @@ fn run() {
     loop {
         editor_config.warn_consistency();
         editor_config.refresh_screen();
-        let keypress = EditorConfig::<io::Stdin>::read_key(&mut editor_config.input_source);
+        let keypress = read_key(&mut editor_config.input_source);
         let to_continue = editor_config.process_keypress(keypress);
         if !to_continue {
             break;
@@ -1588,7 +1591,7 @@ mod tests {
 }";
         let mut mock = mock_editor(None);
         mock.filename = Some("main.rs".to_string());
-        mock.select_syntax();
+        mock.activate_syntax();
 
         mock.load_text(text);
 
@@ -1633,7 +1636,7 @@ mod tests {
 
         let mut mock = mock_editor(None);
         mock.filename = Some("main.rs".to_string());
-        mock.select_syntax();
+        mock.activate_syntax();
 
         mock.load_text(text);
 
@@ -1661,7 +1664,7 @@ mod tests {
 
         let mut mock = mock_editor(None);
         mock.filename = Some("main.rs".to_string());
-        mock.select_syntax();
+        mock.activate_syntax();
 
         mock.load_text(text);
 
@@ -1676,7 +1679,7 @@ mod tests {
 
         let mut mock = mock_editor(None);
         mock.filename = Some("main.rs".to_string());
-        mock.select_syntax();
+        mock.activate_syntax();
 
         mock.load_text(text);
 
@@ -1689,7 +1692,7 @@ mod tests {
 
         let mut mock = mock_editor(None);
         mock.filename = Some("main.rs".to_string());
-        mock.select_syntax();
+        mock.activate_syntax();
         mock.load_text(text);
 
         assert_eq!(mock.rows[1].cells[0].hl, EditorHighlight::Normal);
@@ -1790,7 +1793,7 @@ mod tests {
         let keys = "Hi!\x1b[1~I say \x1b[4~\rOk, bye.\x1b[5~\x1b[7~\x1b[3~We\x11";
         let mut mock = mock_editor(Some(keys));
         while mock.quit_times == 3 {
-            let keypress = EditorConfig::<Box<io::Read>>::read_key(&mut mock.input_source);
+            let keypress = read_key(&mut mock.input_source);
             mock.process_keypress(keypress);
         }
 
@@ -1802,7 +1805,7 @@ mod tests {
         let keys = "\x06me\r";
 
         let mut mock = mock_editor(Some(keys));
-        let keypress = EditorConfig::<Box<io::Read>>::read_key(&mut mock.input_source);
+        let keypress = read_key(&mut mock.input_source);
         mock.process_keypress(keypress);
     }
 
@@ -1815,7 +1818,7 @@ mod tests {
         let mut mock = mock_editor(Some(keys));
 
         mock.load_text(text);
-        let keypress = EditorConfig::<Box<io::Read>>::read_key(&mut mock.input_source);
+        let keypress = read_key(&mut mock.input_source);
         mock.process_keypress(keypress);
 
         // Indicates the position of the match.
@@ -1840,7 +1843,7 @@ mod tests {
         let mut mock = mock_editor(Some(keys));
 
         mock.load_text(text);
-        let keypress = EditorConfig::<Box<io::Read>>::read_key(&mut mock.input_source);
+        let keypress = read_key(&mut mock.input_source);
         mock.process_keypress(keypress);
 
         assert_eq!(3, mock.cursor_y);
@@ -1853,7 +1856,7 @@ mod tests {
         let mut mock = mock_editor(Some(keys));
 
         for _ in 0..4 {
-            let keypress = EditorConfig::<Box<io::Read>>::read_key(&mut mock.input_source);
+            let keypress = read_key(&mut mock.input_source);
             mock.process_keypress(keypress);
         }
 
@@ -1870,19 +1873,19 @@ mod tests {
         mock.load_text(text);
 
         // Search for ab
-        let keypress = EditorConfig::<Box<io::Read>>::read_key(&mut mock.input_source);
+        let keypress = read_key(&mut mock.input_source);
         mock.process_keypress(keypress);
         assert_eq!(1, mock.cursor_y);
         assert_eq!("ab", mock.saved_search);
 
         // Clear the search
-        let keypress = EditorConfig::<Box<io::Read>>::read_key(&mut mock.input_source);
+        let keypress = read_key(&mut mock.input_source);
         mock.process_keypress(keypress);
         assert_eq!(1, mock.cursor_y);
         assert_eq!("", mock.saved_search);
 
         // Search for c
-        let keypress = EditorConfig::<Box<io::Read>>::read_key(&mut mock.input_source);
+        let keypress = read_key(&mut mock.input_source);
         mock.process_keypress(keypress);
         assert_eq!(2, mock.cursor_y);
 
@@ -1896,7 +1899,7 @@ mod tests {
         let mut mock = mock_editor(Some(keys));
         mock.load_text(text);
 
-        let keypress = EditorConfig::<Box<io::Read>>::read_key(&mut mock.input_source);
+        let keypress = read_key(&mut mock.input_source);
         mock.process_keypress(keypress);
         assert_eq!(0, mock.cursor_x);
         assert_eq!(0, mock.cursor_y);

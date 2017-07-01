@@ -248,6 +248,7 @@ where
             }
         }
     }
+
     fn warn_consistency(&mut self) {
         let failure = {
             self.check_consistency()
@@ -327,20 +328,17 @@ where
     fn create_fold(&mut self) {
         if self.cursor_y < self.rows.len() {
             let fold_depth = whitespace_depth(&self.rows[self.cursor_y]);
+            let is_not_in_fold = |row| whitespace_depth(row) < fold_depth && !row.cells.is_empty();
             let start = self.rows
                 .iter()
                 .rev()
                 .skip(self.rows.len() - self.cursor_y)
-                .position(|row| {
-                    whitespace_depth(row) < fold_depth && !row.cells.is_empty()
-                })
+                .position(&is_not_in_fold)
                 .map_or(0, |reverse_offset| self.cursor_y - reverse_offset);
             let end = self.rows
                 .iter()
                 .skip(self.cursor_y + 1)
-                .position(|row| {
-                    whitespace_depth(row) < fold_depth && !row.cells.is_empty()
-                })
+                .position(&is_not_in_fold)
                 .map_or(self.rows.len() - 1, |offset| self.cursor_y + offset);
             self.folds.insert(start, (end, fold_depth));
             self.cursor_y = start;

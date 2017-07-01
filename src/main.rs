@@ -308,7 +308,7 @@ fn restore_orig_mode(orig_termios: &Termios) -> io::Result<()> {
 /// * syntax highlighting **
 
 fn is_separator(c: char) -> bool {
-    c.is_whitespace() || "&{}'\",.()+-/*=~%<>[];:".contains(c)
+    c.is_whitespace() || "&{}'\",.()+-/*=~%<>[];:!".contains(c)
 }
 
 fn whitespace_depth(row: &Row) -> usize {
@@ -371,7 +371,7 @@ fn update_highlights_string(
 
 /// * i/o **
 
-fn read_key(input_source: &mut io::Read) -> EditorKey {
+fn read_key(input_source: &mut Read) -> EditorKey {
     let mut buffer: [u8; 1] = [0];
     while input_source.read(&mut buffer).expect("Read failure") == 0 {}
     let c = buffer[0] as char;
@@ -422,7 +422,7 @@ fn read_key(input_source: &mut io::Read) -> EditorKey {
 
 impl<T> EditorConfig<T>
 where
-    T: io::Read,
+    T: Read,
 {
     fn new() -> EditorConfig<io::Stdin> {
         let mut ws = libc::winsize {
@@ -1000,11 +1000,11 @@ where
         let saved_row_offset = self.row_offset;
         let saved_folds = self.folds.clone();
 
-        let saved_search = mem::replace(&mut self.saved_search, "".to_owned());
+        let search_start = mem::replace(&mut self.saved_search, "".to_owned());
 
         let query = self.prompt(
             "Search (ESC/Arrows/Enter): ",
-            &saved_search,
+            &search_start,
             Some(&|ed, query, key| ed.find_callback(query, key)),
         );
 
@@ -1058,17 +1058,14 @@ where
         while screen_y < self.screen_rows {
             if let Some(&(fold_end, fold_depth)) = self.folds.get(&file_row) {
                 let cells = &self.rows[file_row].cells;
-                let fold_white = if fold_depth < cells.len() {
-                    Row {
-                        cells: cells[..fold_depth].to_vec(),
-                        open_quote: None,
-                    }
+                let fold_white_cells = if fold_depth < cells.len() {
+                    cells[..fold_depth].to_vec()
                 } else {
-                    string_to_row(&" ".repeat(fold_depth))
+                    string_to_row(&" ".repeat(fold_depth)).cells
                 };
                 let fold_white_visible = Row {
-                    cells: if self.col_offset < fold_white.cells.len() {
-                        fold_white.cells[self.col_offset..].to_vec()
+                    cells: if self.col_offset < fold_white_cells.len() {
+                        fold_white_cells[self.col_offset..].to_vec()
                     } else {
                         vec![]
                     },
@@ -1444,7 +1441,7 @@ fn main() {
 mod tests {
     use super::*;
 
-    fn mock_editor(input: Option<&str>) -> EditorConfig<Box<io::Read>> {
+    fn mock_editor(input: Option<&str>) -> EditorConfig<Box<Read>> {
         EditorConfig {
             filename: None,
             screen_rows: 10,
@@ -1472,7 +1469,7 @@ mod tests {
         backward_contents: Vec<u8>,
     }
 
-    impl io::Read for FakeStdin {
+    impl Read for FakeStdin {
         fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
             for (i, elem) in buf.iter_mut().enumerate() {
                 match self.backward_contents.pop() {

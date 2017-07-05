@@ -467,6 +467,88 @@ impl EditorCore {
             |row| row.cells.len(),
         )
     }
+    fn toggle_fold(&mut self) {
+        if self.folds.contains_key(&self.cursor_y) {
+            self.folds.remove(&self.cursor_y);
+        } else if self.cursor_y < self.rows.len() &&
+                   whitespace_depth(&self.rows[self.cursor_y]) == 0
+        {
+            let saved_cursor_y = self.cursor_y;
+            self.cursor_y = 0;
+            while self.cursor_y < self.rows.len() {
+                if let Some(&(end, _)) = self.folds.get(&self.cursor_y) {
+                    self.cursor_y = end + 1;
+                } else if whitespace_depth(&self.rows[self.cursor_y]) > 0 {
+                    self.create_fold();
+                } else {
+                    self.cursor_y += 1;
+                }
+            }
+            self.cursor_y = saved_cursor_y;
+        } else {
+            self.create_fold();
+        }
+    }
+    fn create_fold(&mut self) {
+        if self.cursor_y < self.rows.len() {
+            let fold_depth = whitespace_depth(&self.rows[self.cursor_y]);
+            let is_not_in_fold = |row| whitespace_depth(row) < fold_depth && !row.cells.is_empty();
+            let start = self
+                .rows
+                .iter()
+                .rev()
+                .skip(self.rows.len() - self.cursor_y)
+                .position(&is_not_in_fold)
+                .map_or(0, |reverse_offset| self.cursor_y - reverse_offset);
+            let end = self
+                .rows
+                .iter()
+                .skip(self.cursor_y + 1)
+                .position(&is_not_in_fold)
+                .map_or(
+                    self.rows.len() - 1,
+                    |offset| self.cursor_y + offset,
+                );
+            self.folds.insert(start, (end, fold_depth));
+            self.cursor_y = start;
+        }
+    }
+    fn open_folds(&mut self) {
+        let to_remove: Vec<_> = self
+            .folds
+            .iter()
+            .filter_map(|(&start, &(end, _depth))| if start <= self.cursor_y &&
+                self.cursor_y <= end
+            {
+                Some(start)
+            } else {
+                None
+            })
+            .collect();
+        for start in to_remove {
+            self.folds.remove(&start);
+        }
+    }
+
+    fn one_row_forward(&self, index: usize) -> usize {
+        min(
+            self.rows.len(),
+            self.folds.get(&index).map_or(index, |&(end, _)| end) + 1,
+        )
+    }
+
+    fn one_row_back(&self, index: usize) -> usize {
+        let prev_index = index.saturating_sub(1);
+        if let Some((&start, _end_and_depth)) =
+            self.folds.iter().find(|&(_start, &(end, _depth))| {
+                end == prev_index
+            })
+        {
+            start
+        } else {
+            prev_index
+        }
+    }
 }
 
 
@@ -525,100 +607,7 @@ where
         self.paste_mode = !self.paste_mode;
     }
 
-    /// * folding **
-
-    fn toggle_fold(&mut self) {
-        if self.core.folds.contains_key(&self.core.cursor_y) {
-            self.core.folds.remove(&self.core.cursor_y);
-        } else if self.core.cursor_y < self.core.rows.len() &&
-                   whitespace_depth(&self.core.rows[self.core.cursor_y]) == 0
-        {
-            let saved_cursor_y = self.core.cursor_y;
-            self.core.cursor_y = 0;
-            while self.core.cursor_y < self.core.rows.len() {
-                if let Some(&(end, _)) = self.core.folds.get(&self.core.cursor_y) {
-                    self.core.cursor_y = end + 1;
-                } else if whitespace_depth(&self.core.rows[self.core.cursor_y]) > 0 {
-                    self.create_fold();
-                } else {
-                    self.core.cursor_y += 1;
-                }
-            }
-            self.core.cursor_y = saved_cursor_y;
-        } else {
-            self.create_fold();
-        }
-    }
-    fn create_fold(&mut self) {
-        if self.core.cursor_y < self.core.rows.len() {
-            let fold_depth = whitespace_depth(&self.core.rows[self.core.cursor_y]);
-            let is_not_in_fold = |row| whitespace_depth(row) < fold_depth && !row.cells.is_empty();
-            let start = self.core
-                .rows
-                .iter()
-                .rev()
-                .skip(self.core.rows.len() - self.core.cursor_y)
-                .position(&is_not_in_fold)
-                .map_or(0, |reverse_offset| self.core.cursor_y - reverse_offset);
-            let end = self.core
-                .rows
-                .iter()
-                .skip(self.core.cursor_y + 1)
-                .position(&is_not_in_fold)
-                .map_or(
-                    self.core.rows.len() - 1,
-                    |offset| self.core.cursor_y + offset,
-                );
-            self.core.folds.insert(start, (end, fold_depth));
-            self.core.cursor_y = start;
-        }
-    }
-
-    fn open_folds(&mut self) {
-        let to_remove: Vec<_> = self.core
-            .folds
-            .iter()
-            .filter_map(|(&start, &(end, _depth))| if start <= self.core.cursor_y &&
-                self.core.cursor_y <= end
-            {
-                Some(start)
-            } else {
-                None
-            })
-            .collect();
-        for start in to_remove {
-            self.core.folds.remove(&start);
-        }
-    }
-
-    fn one_row_forward(&self, index: usize) -> usize {
-        min(
-            self.core.rows.len(),
-            self.core.folds.get(&index).map_or(index, |&(end, _)| end) + 1,
-        )
-    }
-
-    fn one_row_back(&self, index: usize) -> usize {
-        let prev_index = index.saturating_sub(1);
-        if let Some((&start, _end_and_depth)) =
-            self.core.folds.iter().find(|&(_start, &(end, _depth))| {
-                end == prev_index
-            })
-        {
-            start
-        } else {
-            prev_index
-        }
-    }
-
     /// * row operations **
-
-    fn current_row_len(&self) -> usize {
-        self.core.rows.get(self.core.cursor_y).map_or(
-            0,
-            |row| row.cells.len(),
-        )
-    }
 
     // Assumes that index is past the open quote, returns final position of index, whether
     // the string is still open.
@@ -1007,7 +996,7 @@ where
                     .find(query)
                     .expect("We just checked the row contained the string");
                 self.core.cursor_y = match_line;
-                self.open_folds();
+                self.core.open_folds();
                 self.core.cursor_x = match_index;
                 self.row_offset = self.core.rows.len();
                 for cell in self.core.rows[match_line]
@@ -1072,7 +1061,7 @@ where
     fn scroll(&mut self) {
         self.row_offset = min(self.row_offset, self.core.cursor_y);
         while self.screen_y() >= self.screen_rows {
-            self.row_offset = self.one_row_forward(self.row_offset)
+            self.row_offset = self.core.one_row_forward(self.row_offset)
         }
         self.col_offset = min(self.col_offset, self.core.cursor_x);
         while self.screen_x() >= self.screen_cols {
@@ -1300,7 +1289,7 @@ where
         let mut file_y = self.row_offset;
         let mut screen_y = 0;
         while file_y < self.core.cursor_y {
-            file_y = self.one_row_forward(file_y);
+            file_y = self.core.one_row_forward(file_y);
             screen_y += 1;
         }
         screen_y
@@ -1311,27 +1300,27 @@ where
         match key {
             EditorKey::ArrowUp => {
                 if self.core.cursor_y > 0 {
-                    self.core.cursor_y = self.one_row_back(self.core.cursor_y);
+                    self.core.cursor_y = self.core.one_row_back(self.core.cursor_y);
                 }
             }
             EditorKey::ArrowDown => {
                 if self.core.cursor_y < self.core.rows.len() {
-                    self.core.cursor_y = self.one_row_forward(self.core.cursor_y);
+                    self.core.cursor_y = self.core.one_row_forward(self.core.cursor_y);
                 }
             }
             EditorKey::ArrowLeft => {
                 if let Some(prev_x) = self.core.cursor_x.checked_sub(1) {
                     self.core.cursor_x = prev_x
                 } else if self.core.cursor_y > 0 {
-                    self.core.cursor_y = self.one_row_back(self.core.cursor_y);
-                    self.core.cursor_x = self.current_row_len();
+                    self.core.cursor_y = self.core.one_row_back(self.core.cursor_y);
+                    self.core.cursor_x = self.core.current_row_len();
                 }
             }
             EditorKey::ArrowRight => {
-                if self.core.cursor_x < self.current_row_len() {
+                if self.core.cursor_x < self.core.current_row_len() {
                     self.core.cursor_x += 1
-                } else if self.core.cursor_x == self.current_row_len() {
-                    self.core.cursor_y = self.one_row_forward(self.core.cursor_y);
+                } else if self.core.cursor_x == self.core.current_row_len() {
+                    self.core.cursor_y = self.core.one_row_forward(self.core.cursor_y);
                     self.core.cursor_x = 0
                 }
             }
@@ -1346,11 +1335,11 @@ where
                 }
             }
             EditorKey::Home => self.core.cursor_x = 0,
-            EditorKey::End => self.core.cursor_x = self.current_row_len(),
+            EditorKey::End => self.core.cursor_x = self.core.current_row_len(),
 
             _ => panic!("Editor move cursor received non moving character"),
         };
-        self.core.cursor_x = min(self.core.cursor_x, self.current_row_len());
+        self.core.cursor_x = min(self.core.cursor_x, self.core.current_row_len());
     }
 
     // Return value indicates whether we should continue processing keypresses.
@@ -1397,7 +1386,7 @@ where
                 }
                 EditorKey::Verbatim(chr) if chr == ctrl_key('f') => self.find(),
                 EditorKey::Verbatim(chr) if chr == ctrl_key('g') => self.go_to(),
-                EditorKey::Verbatim(chr) if chr == ctrl_key(' ') => self.toggle_fold(),
+                EditorKey::Verbatim(chr) if chr == ctrl_key(' ') => self.core.toggle_fold(),
                 EditorKey::Verbatim(chr) if chr == ctrl_key('p') => self.toggle_paste_mode(),
                 // Editing commands
                 EditorKey::Delete |

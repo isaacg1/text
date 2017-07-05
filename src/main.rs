@@ -64,23 +64,27 @@ struct Row {
 }
 
 struct EditorConfig<T: Read> {
-    cursor_x: usize,
-    cursor_y: usize,
+    core: EditorCore,
     screen_rows: usize,
     screen_cols: usize,
-    rows: Vec<Row>,
     row_offset: usize,
     col_offset: usize,
     filename: Option<String>,
-    syntax: Option<EditorSyntax>,
     status_message: String,
     status_message_time: Instant,
     modified: bool,
     quit_times: usize,
-    folds: HashMap<usize, (usize, usize)>,
     input_source: T,
     saved_search: String,
     paste_mode: bool,
+}
+
+struct EditorCore {
+    cursor_x: usize,
+    cursor_y: usize,
+    rows: Vec<Row>,
+    syntax: Option<EditorSyntax>,
+    folds: HashMap<usize, (usize, usize)>,
 }
 
 #[derive(Copy, Clone)]
@@ -105,18 +109,17 @@ enum EditorHighlight {
 impl EditorHighlight {
     fn color(&self) -> String {
         let mut color_string = REVERT_COLORS.to_owned();
-        color_string.push_str(
-            match *self {
-                EditorHighlight::Normal => "",
-                EditorHighlight::Number => RED,
-                EditorHighlight::Match => BACK_BLUE,
-                EditorHighlight::String => MAGENTA,
-                EditorHighlight::Comment => CYAN,
-                EditorHighlight::Keyword1 => YELLOW,
-                EditorHighlight::Keyword2 => GREEN,
-                EditorHighlight::Keyword3 => BRIGHT_GREEN,
-                EditorHighlight::Keyword4 => BRIGHT_YELLOW,
-            });
+        color_string.push_str(match *self {
+            EditorHighlight::Normal => "",
+            EditorHighlight::Number => RED,
+            EditorHighlight::Match => BACK_BLUE,
+            EditorHighlight::String => MAGENTA,
+            EditorHighlight::Comment => CYAN,
+            EditorHighlight::Keyword1 => YELLOW,
+            EditorHighlight::Keyword2 => GREEN,
+            EditorHighlight::Keyword3 => BRIGHT_GREEN,
+            EditorHighlight::Keyword4 => BRIGHT_YELLOW,
+        });
         color_string
     }
 }
@@ -421,58 +424,8 @@ fn read_key(input_source: &mut Read) -> EditorKey {
     }.unwrap_or_else(|| EditorKey::Verbatim(c))
 }
 
-
-impl<T> EditorConfig<T>
-where
-    T: Read,
-{
-    fn new() -> EditorConfig<io::Stdin> {
-        let mut ws = libc::winsize {
-            ws_row: 0,
-            ws_col: 0,
-            ws_xpixel: 0,
-            ws_ypixel: 0,
-        };
-        let res;
-        unsafe {
-            res = libc::ioctl(STDOUT, libc::TIOCGWINSZ, &mut ws);
-        }
-        if res == -1 || ws.ws_col == 0 {
-            panic!("Editor config failed.");
-        } else {
-            EditorConfig {
-                filename: None,
-                screen_rows: ws.ws_row.checked_sub(2).expect("Need at least 2 rows") as usize,
-                screen_cols: ws.ws_col as usize,
-                rows: vec![],
-                row_offset: 0,
-                col_offset: 0,
-                cursor_x: 0,
-                cursor_y: 0,
-                status_message: String::new(),
-                status_message_time: Instant::now(),
-                modified: false,
-                quit_times: 3,
-                syntax: None,
-                folds: HashMap::new(),
-                input_source: io::stdin(),
-                saved_search: String::new(),
-                paste_mode: false,
-            }
-        }
-    }
-
-    fn warn_consistency(&mut self) {
-        let failure = {
-            self.check_consistency()
-        };
-        if let Some(message) = failure {
-            self.set_status_message(message);
-        }
-    }
-
-    /// * debug & testing **
-
+/// * core operations - rows, cursor, folds, syntax **
+impl EditorCore {
     fn check_consistency(&self) -> Option<&'static str> {
         let cursor_position_failure = if self.cursor_y > self.rows.len() {
             Some("Cursor y position out of bounds.")
@@ -508,7 +461,65 @@ where
         )
     }
 
-    /// * paste mode **
+    fn current_row_len(&self) -> usize {
+        self.rows.get(self.cursor_y).map_or(
+            0,
+            |row| row.cells.len(),
+        )
+    }
+}
+
+
+impl<T> EditorConfig<T>
+where
+    T: Read,
+{
+    fn new() -> EditorConfig<io::Stdin> {
+        let mut ws = libc::winsize {
+            ws_row: 0,
+            ws_col: 0,
+            ws_xpixel: 0,
+            ws_ypixel: 0,
+        };
+        let res;
+        unsafe {
+            res = libc::ioctl(STDOUT, libc::TIOCGWINSZ, &mut ws);
+        }
+        if res == -1 || ws.ws_col == 0 {
+            panic!("Editor config failed.");
+        } else {
+            EditorConfig {
+                core: EditorCore {
+                    cursor_x: 0,
+                    cursor_y: 0,
+                    syntax: None,
+                    rows: vec![],
+                    folds: HashMap::new(),
+                },
+                filename: None,
+                screen_rows: ws.ws_row.checked_sub(2).expect("Need at least 2 rows") as usize,
+                screen_cols: ws.ws_col as usize,
+                row_offset: 0,
+                col_offset: 0,
+                status_message: String::new(),
+                status_message_time: Instant::now(),
+                modified: false,
+                quit_times: 3,
+                input_source: io::stdin(),
+                saved_search: String::new(),
+                paste_mode: false,
+            }
+        }
+    }
+
+    fn warn_consistency(&mut self) {
+        let failure = {
+            self.core.check_consistency()
+        };
+        if let Some(message) = failure {
+            self.set_status_message(message);
+        }
+    }
 
     fn toggle_paste_mode(&mut self) {
         self.paste_mode = !self.paste_mode;
@@ -517,52 +528,58 @@ where
     /// * folding **
 
     fn toggle_fold(&mut self) {
-        if self.folds.contains_key(&self.cursor_y) {
-            self.folds.remove(&self.cursor_y);
-        } else if self.cursor_y < self.rows.len() &&
-                   whitespace_depth(&self.rows[self.cursor_y]) == 0
+        if self.core.folds.contains_key(&self.core.cursor_y) {
+            self.core.folds.remove(&self.core.cursor_y);
+        } else if self.core.cursor_y < self.core.rows.len() &&
+                   whitespace_depth(&self.core.rows[self.core.cursor_y]) == 0
         {
-            let saved_cursor_y = self.cursor_y;
-            self.cursor_y = 0;
-            while self.cursor_y < self.rows.len() {
-                if let Some(&(end, _)) = self.folds.get(&self.cursor_y) {
-                    self.cursor_y = end + 1;
-                } else if whitespace_depth(&self.rows[self.cursor_y]) > 0 {
+            let saved_cursor_y = self.core.cursor_y;
+            self.core.cursor_y = 0;
+            while self.core.cursor_y < self.core.rows.len() {
+                if let Some(&(end, _)) = self.core.folds.get(&self.core.cursor_y) {
+                    self.core.cursor_y = end + 1;
+                } else if whitespace_depth(&self.core.rows[self.core.cursor_y]) > 0 {
                     self.create_fold();
                 } else {
-                    self.cursor_y += 1;
+                    self.core.cursor_y += 1;
                 }
             }
-            self.cursor_y = saved_cursor_y;
+            self.core.cursor_y = saved_cursor_y;
         } else {
             self.create_fold();
         }
     }
     fn create_fold(&mut self) {
-        if self.cursor_y < self.rows.len() {
-            let fold_depth = whitespace_depth(&self.rows[self.cursor_y]);
+        if self.core.cursor_y < self.core.rows.len() {
+            let fold_depth = whitespace_depth(&self.core.rows[self.core.cursor_y]);
             let is_not_in_fold = |row| whitespace_depth(row) < fold_depth && !row.cells.is_empty();
-            let start = self.rows
+            let start = self.core
+                .rows
                 .iter()
                 .rev()
-                .skip(self.rows.len() - self.cursor_y)
+                .skip(self.core.rows.len() - self.core.cursor_y)
                 .position(&is_not_in_fold)
-                .map_or(0, |reverse_offset| self.cursor_y - reverse_offset);
-            let end = self.rows
+                .map_or(0, |reverse_offset| self.core.cursor_y - reverse_offset);
+            let end = self.core
+                .rows
                 .iter()
-                .skip(self.cursor_y + 1)
+                .skip(self.core.cursor_y + 1)
                 .position(&is_not_in_fold)
-                .map_or(self.rows.len() - 1, |offset| self.cursor_y + offset);
-            self.folds.insert(start, (end, fold_depth));
-            self.cursor_y = start;
+                .map_or(
+                    self.core.rows.len() - 1,
+                    |offset| self.core.cursor_y + offset,
+                );
+            self.core.folds.insert(start, (end, fold_depth));
+            self.core.cursor_y = start;
         }
     }
 
     fn open_folds(&mut self) {
-        let to_remove: Vec<_> = self.folds
+        let to_remove: Vec<_> = self.core
+            .folds
             .iter()
-            .filter_map(|(&start, &(end, _depth))| if start <= self.cursor_y &&
-                self.cursor_y <= end
+            .filter_map(|(&start, &(end, _depth))| if start <= self.core.cursor_y &&
+                self.core.cursor_y <= end
             {
                 Some(start)
             } else {
@@ -570,21 +587,21 @@ where
             })
             .collect();
         for start in to_remove {
-            self.folds.remove(&start);
+            self.core.folds.remove(&start);
         }
     }
 
     fn one_row_forward(&self, index: usize) -> usize {
         min(
-            self.rows.len(),
-            self.folds.get(&index).map_or(index, |&(end, _)| end) + 1,
+            self.core.rows.len(),
+            self.core.folds.get(&index).map_or(index, |&(end, _)| end) + 1,
         )
     }
 
     fn one_row_back(&self, index: usize) -> usize {
         let prev_index = index.saturating_sub(1);
         if let Some((&start, _end_and_depth)) =
-            self.folds.iter().find(|&(_start, &(end, _depth))| {
+            self.core.folds.iter().find(|&(_start, &(end, _depth))| {
                 end == prev_index
             })
         {
@@ -597,7 +614,7 @@ where
     /// * row operations **
 
     fn current_row_len(&self) -> usize {
-        self.rows.get(self.cursor_y).map_or(
+        self.core.rows.get(self.core.cursor_y).map_or(
             0,
             |row| row.cells.len(),
         )
@@ -609,11 +626,11 @@ where
     fn update_row_highlights(&mut self, row_index: usize) {
         let prev_open_quote: Option<char> = row_index
             .checked_sub(1)
-            .and_then(|prev_index| self.rows.get(prev_index))
+            .and_then(|prev_index| self.core.rows.get(prev_index))
             .and_then(|prev_row| prev_row.open_quote);
         let mut update_next = false;
-        if let Some(mut row) = self.rows.get_mut(row_index) {
-            if let Some(ref syntax) = self.syntax {
+        if let Some(mut row) = self.core.rows.get_mut(row_index) {
+            if let Some(ref syntax) = self.core.syntax {
                 if row.open_quote.is_some() {
                     update_next = true;
                 }
@@ -703,16 +720,16 @@ where
                 }
             }
         }
-        if row_index < self.rows.len() && update_next {
+        if row_index < self.core.rows.len() && update_next {
             self.update_row_highlights(row_index + 1);
         }
     }
 
     fn activate_syntax(&mut self) {
-        self.syntax = self.filename.as_ref().and_then(
-            |filename| EditorSyntax::for_filename(filename),
-        );
-        for index in 0..self.rows.len() {
+        self.core.syntax = self.filename.as_ref().and_then(|filename| {
+            EditorSyntax::for_filename(filename)
+        });
+        for index in 0..self.core.rows.len() {
             self.update_row_highlights(index);
         }
     }
@@ -720,115 +737,119 @@ where
     /// * editor operations **
 
     fn insert_char(&mut self, c: char) {
-        if self.cursor_y == self.rows.len() {
-            self.rows.push(Row {
+        if self.core.cursor_y == self.core.rows.len() {
+            self.core.rows.push(Row {
                 cells: Vec::new(),
                 open_quote: None,
             });
         }
-        self.rows[self.cursor_y].cells.insert(
-            self.cursor_x,
+        self.core.rows[self.core.cursor_y].cells.insert(
+            self.core.cursor_x,
             Cell {
                 chr: c,
                 hl: EditorHighlight::Normal,
             },
         );
-        let index = self.cursor_y;
+        let index = self.core.cursor_y;
         self.update_row_highlights(index);
-        self.cursor_x += 1;
+        self.core.cursor_x += 1;
         self.modified = true;
     }
 
     fn insert_tab(&mut self) {
-        if self.cursor_y == self.rows.len() {
-            self.rows.push(Row {
+        if self.core.cursor_y == self.core.rows.len() {
+            self.core.rows.push(Row {
                 cells: Vec::new(),
                 open_quote: None,
             });
         }
-        for _ in 0..4 - self.cursor_x % 4 {
-            self.rows[self.cursor_y].cells.insert(
-                self.cursor_x,
+        for _ in 0..4 - self.core.cursor_x % 4 {
+            self.core.rows[self.core.cursor_y].cells.insert(
+                self.core.cursor_x,
                 Cell {
                     chr: ' ',
                     hl: EditorHighlight::Normal,
                 },
             );
-            self.cursor_x += 1;
+            self.core.cursor_x += 1;
         }
-        let index = self.cursor_y;
+        let index = self.core.cursor_y;
         self.update_row_highlights(index);
         self.modified = true;
     }
 
     fn insert_newline(&mut self) {
-        let open_quote = if let Some(prev_y) = self.cursor_y.checked_sub(1) {
-            self.rows[prev_y].open_quote
+        let open_quote = if let Some(prev_y) = self.core.cursor_y.checked_sub(1) {
+            self.core.rows[prev_y].open_quote
         } else {
             None
         };
 
-        if self.cursor_y < self.rows.len() {
+        if self.core.cursor_y < self.core.rows.len() {
             let depth = if self.paste_mode {
                 0
             } else {
-                whitespace_depth(&self.rows[self.cursor_y])
+                whitespace_depth(&self.core.rows[self.core.cursor_y])
             };
             // If in the whitespace, insert blank line.
-            if depth >= self.cursor_x {
-                self.rows.insert(
-                    self.cursor_y,
+            if depth >= self.core.cursor_x {
+                self.core.rows.insert(
+                    self.core.cursor_y,
                     Row {
                         cells: vec![],
                         open_quote: open_quote,
                     },
                 );
             } else {
-                let cells_end = self.rows[self.cursor_y].cells.split_off(self.cursor_x);
-                let mut next_row_cells = self.rows[self.cursor_y].cells[..depth].to_vec();
+                let cells_end = self.core.rows[self.core.cursor_y].cells.split_off(
+                    self.core.cursor_x,
+                );
+                let mut next_row_cells = self.core.rows[self.core.cursor_y].cells[..depth].to_vec();
                 next_row_cells.extend(cells_end);
                 let next_row = Row {
                     cells: next_row_cells,
                     open_quote: None,
                 };
-                self.rows.insert(self.cursor_y + 1, next_row);
+                self.core.rows.insert(self.core.cursor_y + 1, next_row);
             }
-            for row_index in (self.cursor_y..self.rows.len()).rev() {
-                if let Some((end, depth)) = self.folds.remove(&row_index) {
-                    self.folds.insert(row_index + 1, (end + 1, depth));
+            for row_index in (self.core.cursor_y..self.core.rows.len()).rev() {
+                if let Some((end, depth)) = self.core.folds.remove(&row_index) {
+                    self.core.folds.insert(row_index + 1, (end + 1, depth));
                 }
             }
-            let index = self.cursor_y;
+            let index = self.core.cursor_y;
             self.update_row_highlights(index);
             self.update_row_highlights(index + 1);
 
-            self.cursor_x = depth;
+            self.core.cursor_x = depth;
         } else {
-            self.rows.push(Row {
+            self.core.rows.push(Row {
                 cells: vec![],
                 open_quote: open_quote,
             })
         }
-        self.cursor_y += 1;
+        self.core.cursor_y += 1;
         self.modified = true;
     }
 
     fn shift_folds_back(&mut self) {
-        for row_index in self.cursor_y..self.rows.len() + 1 {
-            if let Some((end, depth)) = self.folds.remove(&row_index) {
-                self.folds.insert(row_index - 1, (end - 1, depth));
+        for row_index in self.core.cursor_y..self.core.rows.len() + 1 {
+            if let Some((end, depth)) = self.core.folds.remove(&row_index) {
+                self.core.folds.insert(row_index - 1, (end - 1, depth));
             }
         }
     }
 
     fn delete_row(&mut self) {
-        if self.cursor_y < self.rows.len() {
-            if self.cursor_x == 0 {
-                self.rows.remove(self.cursor_y);
+        if self.core.cursor_y < self.core.rows.len() {
+            if self.core.cursor_x == 0 {
+                self.core.rows.remove(self.core.cursor_y);
                 self.shift_folds_back();
             } else {
-                self.rows[self.cursor_y].cells.truncate(self.cursor_x);
-                let index = self.cursor_y;
+                self.core.rows[self.core.cursor_y].cells.truncate(
+                    self.core.cursor_x,
+                );
+                let index = self.core.cursor_y;
                 self.update_row_highlights(index);
             }
             self.modified = true
@@ -836,27 +857,29 @@ where
     }
 
     fn delete_char(&mut self) {
-        if let Some(prev_x) = self.cursor_x.checked_sub(1) {
-            self.rows[self.cursor_y].cells.remove(prev_x);
-            let index = self.cursor_y;
+        if let Some(prev_x) = self.core.cursor_x.checked_sub(1) {
+            self.core.rows[self.core.cursor_y].cells.remove(prev_x);
+            let index = self.core.cursor_y;
             self.update_row_highlights(index);
-            self.cursor_x = prev_x;
+            self.core.cursor_x = prev_x;
             self.modified = true
-        } else if 0 < self.cursor_y && self.cursor_y < self.rows.len() {
-            if self.folds.values().any(
-                |&(end, _)| end == self.cursor_y - 1,
-            )
+        } else if 0 < self.core.cursor_y && self.core.cursor_y < self.core.rows.len() {
+            if self.core.folds.values().any(|&(end, _)| {
+                end == self.core.cursor_y - 1
+            })
             {
                 self.set_status_message(DONT_EDIT_FOLDS);
             } else {
-                self.cursor_x = self.rows[self.cursor_y - 1].cells.len();
-                let moved_line = self.rows.remove(self.cursor_y);
+                self.core.cursor_x = self.core.rows[self.core.cursor_y - 1].cells.len();
+                let moved_line = self.core.rows.remove(self.core.cursor_y);
                 let line_to_append = &moved_line.cells[whitespace_depth(&moved_line)..];
-                self.rows[self.cursor_y - 1].cells.extend(line_to_append);
-                self.rows[self.cursor_y - 1].open_quote = moved_line.open_quote;
+                self.core.rows[self.core.cursor_y - 1].cells.extend(
+                    line_to_append,
+                );
+                self.core.rows[self.core.cursor_y - 1].open_quote = moved_line.open_quote;
                 self.shift_folds_back();
-                self.cursor_y -= 1;
-                let index = self.cursor_y;
+                self.core.cursor_y -= 1;
+                let index = self.core.cursor_y;
                 self.update_row_highlights(index);
                 self.modified = true
             }
@@ -881,16 +904,16 @@ where
     }
 
     fn load_text(&mut self, text: &str) {
-        self.rows = vec![];
-        self.folds = HashMap::new();
+        self.core.rows = vec![];
+        self.core.folds = HashMap::new();
 
         let mut row_buffer = String::new();
         for byte in text.bytes() {
             let c = byte as char;
             if c == '\n' {
                 let row = string_to_row(&row_buffer);
-                let update_index = self.rows.len();
-                self.rows.push(row);
+                let update_index = self.core.rows.len();
+                self.core.rows.push(row);
                 self.update_row_highlights(update_index);
                 row_buffer.truncate(0);
             } else {
@@ -898,17 +921,18 @@ where
             }
         }
         let row = string_to_row(&row_buffer);
-        let update_index = self.rows.len();
-        self.rows.push(row);
+        let update_index = self.core.rows.len();
+        self.core.rows.push(row);
         self.update_row_highlights(update_index);
 
-        self.cursor_y = min(self.cursor_y, self.rows.len());
-        self.cursor_x = 0;
+        self.core.cursor_y = min(self.core.cursor_y, self.core.rows.len());
+        self.core.cursor_x = 0;
         self.scroll();
     }
 
     fn all_text(&self) -> String {
-        self.rows
+        self.core
+            .rows
             .iter()
             .map(|row| row_to_string(row))
             .collect::<Vec<_>>()
@@ -940,50 +964,53 @@ where
     /// * macro movement **
 
     fn find_callback(&mut self, query: &str, key: EditorKey) {
-        if self.cursor_y < self.rows.len() {
-            let index = self.cursor_y;
+        if self.core.cursor_y < self.core.rows.len() {
+            let index = self.core.cursor_y;
             self.update_row_highlights(index)
         }
         if key != EditorKey::Verbatim('\r') && key != EditorKey::Verbatim('\x1b') {
             let match_line = {
                 let find_predicate = &|row: &Row| row_to_string(row).contains(query);
                 if key == EditorKey::ArrowRight || key == EditorKey::ArrowDown {
-                    let potential_match = if self.cursor_y + 1 < self.rows.len() {
-                        self.rows
+                    let potential_match = if self.core.cursor_y + 1 < self.core.rows.len() {
+                        self.core
+                            .rows
                             .iter()
-                            .skip(self.cursor_y + 1)
+                            .skip(self.core.cursor_y + 1)
                             .position(find_predicate)
-                            .map(|offset| offset + self.cursor_y + 1)
+                            .map(|offset| offset + self.core.cursor_y + 1)
                     } else {
                         None
                     };
-                    potential_match.or_else(|| self.rows.iter().position(find_predicate))
+                    potential_match.or_else(|| self.core.rows.iter().position(find_predicate))
                 } else if key == EditorKey::ArrowLeft || key == EditorKey::ArrowUp {
-                    let potential_match =
-                        self.rows[..self.cursor_y].iter().rposition(find_predicate);
-                    potential_match.or_else(|| self.rows.iter().rposition(find_predicate))
+                    let potential_match = self.core.rows[..self.core.cursor_y].iter().rposition(
+                        find_predicate,
+                    );
+                    potential_match.or_else(|| self.core.rows.iter().rposition(find_predicate))
                 } else {
-                    let potential_match = if self.cursor_y < self.rows.len() {
-                        self.rows
+                    let potential_match = if self.core.cursor_y < self.core.rows.len() {
+                        self.core
+                            .rows
                             .iter()
-                            .skip(self.cursor_y)
+                            .skip(self.core.cursor_y)
                             .position(find_predicate)
-                            .map(|offset| offset + self.cursor_y)
+                            .map(|offset| offset + self.core.cursor_y)
                     } else {
                         None
                     };
-                    potential_match.or_else(|| self.rows.iter().position(find_predicate))
+                    potential_match.or_else(|| self.core.rows.iter().position(find_predicate))
                 }
             };
             if let Some(match_line) = match_line {
-                let match_index = row_to_string(&self.rows[match_line]).find(query).expect(
-                    "We just checked the row contained the string",
-                );
-                self.cursor_y = match_line;
+                let match_index = row_to_string(&self.core.rows[match_line])
+                    .find(query)
+                    .expect("We just checked the row contained the string");
+                self.core.cursor_y = match_line;
                 self.open_folds();
-                self.cursor_x = match_index;
-                self.row_offset = self.rows.len();
-                for cell in self.rows[match_line]
+                self.core.cursor_x = match_index;
+                self.row_offset = self.core.rows.len();
+                for cell in self.core.rows[match_line]
                     .cells
                     .iter_mut()
                     .skip(match_index)
@@ -996,11 +1023,11 @@ where
     }
 
     fn find(&mut self) {
-        let saved_cursor_x = self.cursor_x;
-        let saved_cursor_y = self.cursor_y;
+        let saved_cursor_x = self.core.cursor_x;
+        let saved_cursor_y = self.core.cursor_y;
         let saved_col_offset = self.col_offset;
         let saved_row_offset = self.row_offset;
-        let saved_folds = self.folds.clone();
+        let saved_folds = self.core.folds.clone();
 
         let search_start = mem::replace(&mut self.saved_search, "".to_owned());
 
@@ -1012,11 +1039,11 @@ where
 
         match query {
             None => {
-                self.cursor_x = saved_cursor_x;
-                self.cursor_y = saved_cursor_y;
+                self.core.cursor_x = saved_cursor_x;
+                self.core.cursor_y = saved_cursor_y;
                 self.col_offset = saved_col_offset;
                 self.row_offset = saved_row_offset;
-                self.folds = saved_folds;
+                self.core.folds = saved_folds;
             }
             Some(search) => {
                 self.saved_search = search;
@@ -1028,9 +1055,9 @@ where
         if let Some(response) = self.prompt("Go to line: ", "", None) {
             match response.parse::<usize>() {
                 Ok(line) => {
-                    if 0 < line && line - 1 <= self.rows.len() {
-                        self.cursor_y = line - 1;
-                        self.cursor_x = 0;
+                    if 0 < line && line - 1 <= self.core.rows.len() {
+                        self.core.cursor_y = line - 1;
+                        self.core.cursor_x = 0;
                     } else {
                         self.set_status_message(&format!("Line {} outside of range of file", line));
                     }
@@ -1043,11 +1070,11 @@ where
     /// * output **
 
     fn scroll(&mut self) {
-        self.row_offset = min(self.row_offset, self.cursor_y);
+        self.row_offset = min(self.row_offset, self.core.cursor_y);
         while self.screen_y() >= self.screen_rows {
             self.row_offset = self.one_row_forward(self.row_offset)
         }
-        self.col_offset = min(self.col_offset, self.cursor_x);
+        self.col_offset = min(self.col_offset, self.core.cursor_x);
         while self.screen_x() >= self.screen_cols {
             self.col_offset += 1;
         }
@@ -1058,8 +1085,8 @@ where
         let mut screen_y = 0;
         let mut file_row = self.row_offset;
         while screen_y < self.screen_rows {
-            if let Some(&(fold_end, fold_depth)) = self.folds.get(&file_row) {
-                let cells = &self.rows[file_row].cells;
+            if let Some(&(fold_end, fold_depth)) = self.core.folds.get(&file_row) {
+                let cells = &self.core.rows[file_row].cells;
                 let fold_white_cells = if fold_depth < cells.len() {
                     cells[..fold_depth].to_vec()
                 } else {
@@ -1085,8 +1112,8 @@ where
                 append_buffer.push_str(&" ".repeat(padding));
                 append_buffer.push_str(REVERT_COLORS);
                 file_row = fold_end + 1;
-            } else if file_row < self.rows.len() {
-                let current_cells = &self.rows[file_row].cells;
+            } else if file_row < self.core.rows.len() {
+                let current_cells = &self.core.rows[file_row].cells;
                 if self.col_offset < current_cells.len() {
                     let mut current_hl = EditorHighlight::Normal;
                     let mut chars_written = 0;
@@ -1118,7 +1145,7 @@ where
                     append_buffer.push_str(REVERT_COLORS);
                 }
                 file_row += 1;
-            } else if self.rows.is_empty() && screen_y == self.screen_rows / 3 {
+            } else if self.core.rows.is_empty() && screen_y == self.screen_rows / 3 {
                 let welcome = format!("Isaac's editor -- version {}", IED_VERSION);
                 let padding = self.screen_cols.saturating_sub(welcome.len()) / 2;
                 if padding > 0 {
@@ -1148,17 +1175,17 @@ where
         let mut status = format!("{} {} {}", name, dirty, paste);
         status.truncate(self.screen_cols);
         append_buffer.push_str(&status);
-        let filetype = match self.syntax {
+        let filetype = match self.core.syntax {
             None => "no ft",
             Some(ref syntax) => &syntax.filetype,
         };
         let mut right_status = format!(
             "{} | r: {}/{}, c: {}/{}",
             filetype,
-            self.cursor_y + 1,
-            self.rows.len(),
-            self.cursor_x + 1,
-            self.rows.get(self.cursor_y).map_or(
+            self.core.cursor_y + 1,
+            self.core.rows.len(),
+            self.core.cursor_x + 1,
+            self.core.rows.get(self.core.cursor_y).map_or(
                 0,
                 |row| row.cells.len(),
             )
@@ -1259,10 +1286,10 @@ where
     }
 
     fn screen_x(&self) -> usize {
-        self.rows.get(self.cursor_y).map_or(0, |row| {
+        self.core.rows.get(self.core.cursor_y).map_or(0, |row| {
             row.cells
                 .iter()
-                .take(self.cursor_x)
+                .take(self.core.cursor_x)
                 .skip(self.col_offset)
                 .map(|cell| if cell.chr == '\t' { TAB_STOP } else { 1 })
                 .sum()
@@ -1272,7 +1299,7 @@ where
     fn screen_y(&self) -> usize {
         let mut file_y = self.row_offset;
         let mut screen_y = 0;
-        while file_y < self.cursor_y {
+        while file_y < self.core.cursor_y {
             file_y = self.one_row_forward(file_y);
             screen_y += 1;
         }
@@ -1283,29 +1310,29 @@ where
         // Smaller values are up and left
         match key {
             EditorKey::ArrowUp => {
-                if self.cursor_y > 0 {
-                    self.cursor_y = self.one_row_back(self.cursor_y);
+                if self.core.cursor_y > 0 {
+                    self.core.cursor_y = self.one_row_back(self.core.cursor_y);
                 }
             }
             EditorKey::ArrowDown => {
-                if self.cursor_y < self.rows.len() {
-                    self.cursor_y = self.one_row_forward(self.cursor_y);
+                if self.core.cursor_y < self.core.rows.len() {
+                    self.core.cursor_y = self.one_row_forward(self.core.cursor_y);
                 }
             }
             EditorKey::ArrowLeft => {
-                if let Some(prev_x) = self.cursor_x.checked_sub(1) {
-                    self.cursor_x = prev_x
-                } else if self.cursor_y > 0 {
-                    self.cursor_y = self.one_row_back(self.cursor_y);
-                    self.cursor_x = self.current_row_len();
+                if let Some(prev_x) = self.core.cursor_x.checked_sub(1) {
+                    self.core.cursor_x = prev_x
+                } else if self.core.cursor_y > 0 {
+                    self.core.cursor_y = self.one_row_back(self.core.cursor_y);
+                    self.core.cursor_x = self.current_row_len();
                 }
             }
             EditorKey::ArrowRight => {
-                if self.cursor_x < self.current_row_len() {
-                    self.cursor_x += 1
-                } else if self.cursor_x == self.current_row_len() {
-                    self.cursor_y = self.one_row_forward(self.cursor_y);
-                    self.cursor_x = 0
+                if self.core.cursor_x < self.current_row_len() {
+                    self.core.cursor_x += 1
+                } else if self.core.cursor_x == self.current_row_len() {
+                    self.core.cursor_y = self.one_row_forward(self.core.cursor_y);
+                    self.core.cursor_x = 0
                 }
             }
             EditorKey::PageUp => {
@@ -1318,12 +1345,12 @@ where
                     self.move_cursor(EditorKey::ArrowDown)
                 }
             }
-            EditorKey::Home => self.cursor_x = 0,
-            EditorKey::End => self.cursor_x = self.current_row_len(),
+            EditorKey::Home => self.core.cursor_x = 0,
+            EditorKey::End => self.core.cursor_x = self.current_row_len(),
 
             _ => panic!("Editor move cursor received non moving character"),
         };
-        self.cursor_x = min(self.cursor_x, self.current_row_len());
+        self.core.cursor_x = min(self.core.cursor_x, self.current_row_len());
     }
 
     // Return value indicates whether we should continue processing keypresses.
@@ -1374,13 +1401,13 @@ where
                 EditorKey::Verbatim(chr) if chr == ctrl_key('p') => self.toggle_paste_mode(),
                 // Editing commands
                 EditorKey::Delete |
-                EditorKey::Verbatim(_) if self.folds.contains_key(&self.cursor_y) => {
+                EditorKey::Verbatim(_) if self.core.folds.contains_key(&self.core.cursor_y) => {
                     self.set_status_message(DONT_EDIT_FOLDS);
                 }
                 EditorKey::Verbatim('\r') => self.insert_newline(),
                 EditorKey::Delete => {
-                    if self.folds.contains_key(&(self.cursor_y + 1)) &&
-                        self.cursor_x == self.rows[self.cursor_y].cells.len()
+                    if self.core.folds.contains_key(&(self.core.cursor_y + 1)) &&
+                        self.core.cursor_x == self.core.rows[self.core.cursor_y].cells.len()
                     {
                         self.set_status_message(DONT_EDIT_FOLDS);
                     } else {
@@ -1445,20 +1472,23 @@ mod tests {
 
     fn mock_editor(input: Option<&str>) -> EditorConfig<Box<Read>> {
         EditorConfig {
+            core: EditorCore {
+                rows: vec![],
+                cursor_x: 0,
+                cursor_y: 0,
+                folds: HashMap::new(),
+                syntax: None,
+            },
+
             filename: None,
             screen_rows: 10,
             screen_cols: 10,
-            rows: vec![],
             row_offset: 0,
             col_offset: 0,
-            cursor_x: 0,
-            cursor_y: 0,
             status_message: String::new(),
             status_message_time: Instant::now(),
             modified: false,
             quit_times: 3,
-            syntax: None,
-            folds: HashMap::new(),
             input_source: input.map_or(Box::new(io::empty()), |text| {
                 Box::new(FakeStdin::new(text.as_bytes()))
             }),
@@ -1496,7 +1526,7 @@ mod tests {
         let mock = mock_editor(None);
         let text = mock.all_text();
         assert_eq!(text, "");
-        assert_eq!(None, mock.check_consistency())
+        assert_eq!(None, mock.core.check_consistency())
     }
 
     #[test]
@@ -1508,7 +1538,7 @@ mod tests {
         let text = mock.all_text();
 
         assert_eq!(line, text);
-        assert_eq!(None, mock.check_consistency())
+        assert_eq!(None, mock.core.check_consistency())
     }
 
     #[test]
@@ -1520,7 +1550,7 @@ mod tests {
         let text = mock.all_text();
 
         assert_eq!(lines, text);
-        assert_eq!(None, mock.check_consistency())
+        assert_eq!(None, mock.core.check_consistency())
     }
 
     #[test]
@@ -1533,7 +1563,7 @@ mod tests {
         }
 
         assert_eq!(typed_text, mock.all_text());
-        assert_eq!(None, mock.check_consistency())
+        assert_eq!(None, mock.core.check_consistency())
     }
 
     #[test]
@@ -1549,7 +1579,7 @@ mod tests {
         let reversed_text = typed_text.chars().rev().collect::<String>();
 
         assert_eq!(reversed_text, mock.all_text());
-        assert_eq!(None, mock.check_consistency())
+        assert_eq!(None, mock.core.check_consistency())
     }
 
     #[test]
@@ -1573,13 +1603,13 @@ mod tests {
         let mut mock = mock_editor(None);
 
         mock.process_keypress(EditorKey::ArrowUp);
-        assert_eq!(None, mock.check_consistency());
+        assert_eq!(None, mock.core.check_consistency());
         mock.process_keypress(EditorKey::ArrowLeft);
-        assert_eq!(None, mock.check_consistency());
+        assert_eq!(None, mock.core.check_consistency());
         mock.process_keypress(EditorKey::ArrowDown);
-        assert_eq!(None, mock.check_consistency());
+        assert_eq!(None, mock.core.check_consistency());
         mock.process_keypress(EditorKey::ArrowRight);
-        assert_eq!(None, mock.check_consistency());
+        assert_eq!(None, mock.core.check_consistency());
     }
 
     #[test]
@@ -1594,35 +1624,35 @@ mod tests {
 
         mock.load_text(text);
 
-        assert_eq!(mock.rows.len(), 4);
-        assert!(mock.rows[0].cells[..2].iter().all(|cell| {
+        assert_eq!(mock.core.rows.len(), 4);
+        assert!(mock.core.rows[0].cells[..2].iter().all(|cell| {
             cell.hl == EditorHighlight::Keyword1
         }));
-        assert!(mock.rows[0].cells[2..].iter().all(|cell| {
+        assert!(mock.core.rows[0].cells[2..].iter().all(|cell| {
             cell.hl == EditorHighlight::Normal
         }));
-        assert!(mock.rows[1].cells[..13].iter().all(|cell| {
+        assert!(mock.core.rows[1].cells[..13].iter().all(|cell| {
             cell.hl == EditorHighlight::Normal
         }));
-        assert!(mock.rows[1].cells[13..30].iter().all(|cell| {
+        assert!(mock.core.rows[1].cells[13..30].iter().all(|cell| {
             cell.hl == EditorHighlight::String
         }));
-        assert!(mock.rows[1].cells[30..].iter().all(|cell| {
+        assert!(mock.core.rows[1].cells[30..].iter().all(|cell| {
             cell.hl == EditorHighlight::Normal
         }));
-        assert!(mock.rows[2].cells[..4].iter().all(|cell| {
+        assert!(mock.core.rows[2].cells[..4].iter().all(|cell| {
             cell.hl == EditorHighlight::Normal
         }));
-        assert!(mock.rows[2].cells[4..7].iter().all(|cell| {
+        assert!(mock.core.rows[2].cells[4..7].iter().all(|cell| {
             cell.hl == EditorHighlight::Number
         }));
-        assert!(mock.rows[2].cells[7..8].iter().all(|cell| {
+        assert!(mock.core.rows[2].cells[7..8].iter().all(|cell| {
             cell.hl == EditorHighlight::Normal
         }));
-        assert!(mock.rows[2].cells[8..].iter().all(|cell| {
+        assert!(mock.core.rows[2].cells[8..].iter().all(|cell| {
             cell.hl == EditorHighlight::Comment
         }));
-        assert!(mock.rows[3].cells.iter().all(|cell| {
+        assert!(mock.core.rows[3].cells.iter().all(|cell| {
             cell.hl == EditorHighlight::Normal
         }));
     }
@@ -1639,20 +1669,20 @@ mod tests {
 
         mock.load_text(text);
 
-        assert_eq!(mock.rows.len(), 3);
-        assert!(mock.rows[0].cells[..8].iter().all(|cell| {
+        assert_eq!(mock.core.rows.len(), 3);
+        assert!(mock.core.rows[0].cells[..8].iter().all(|cell| {
             cell.hl == EditorHighlight::Normal
         }));
-        assert!(mock.rows[0].cells[8..].iter().all(|cell| {
+        assert!(mock.core.rows[0].cells[8..].iter().all(|cell| {
             cell.hl == EditorHighlight::String
         }));
-        assert!(mock.rows[1].cells.iter().all(|cell| {
+        assert!(mock.core.rows[1].cells.iter().all(|cell| {
             cell.hl == EditorHighlight::String
         }));
-        assert!(mock.rows[2].cells[..8].iter().all(|cell| {
+        assert!(mock.core.rows[2].cells[..8].iter().all(|cell| {
             cell.hl == EditorHighlight::String
         }));
-        assert!(mock.rows[2].cells[8..].iter().all(|cell| {
+        assert!(mock.core.rows[2].cells[8..].iter().all(|cell| {
             cell.hl == EditorHighlight::Normal
         }));
     }
@@ -1667,9 +1697,9 @@ mod tests {
 
         mock.load_text(text);
 
-        assert_eq!(mock.rows[1].cells[0].hl, EditorHighlight::String);
+        assert_eq!(mock.core.rows[1].cells[0].hl, EditorHighlight::String);
         mock.process_keypress(EditorKey::Delete);
-        assert_eq!(mock.rows[1].cells[0].hl, EditorHighlight::Normal);
+        assert_eq!(mock.core.rows[1].cells[0].hl, EditorHighlight::Normal);
     }
 
     #[test]
@@ -1682,7 +1712,7 @@ mod tests {
 
         mock.load_text(text);
 
-        assert_eq!(mock.rows[2].cells[0].hl, EditorHighlight::String);
+        assert_eq!(mock.core.rows[2].cells[0].hl, EditorHighlight::String);
     }
 
     #[test]
@@ -1694,7 +1724,7 @@ mod tests {
         mock.activate_syntax();
         mock.load_text(text);
 
-        assert_eq!(mock.rows[1].cells[0].hl, EditorHighlight::Normal);
+        assert_eq!(mock.core.rows[1].cells[0].hl, EditorHighlight::Normal);
     }
 
     #[test]
@@ -1704,19 +1734,19 @@ mod tests {
         let mut mock = mock_editor(None);
         mock.load_text(text);
 
-        assert_eq!(mock.rows.len(), 3);
+        assert_eq!(mock.core.rows.len(), 3);
 
         mock.process_keypress(EditorKey::ArrowDown);
         mock.process_keypress(EditorKey::ArrowDown);
-        assert_eq!(mock.cursor_y, 2);
+        assert_eq!(mock.core.cursor_y, 2);
         mock.process_keypress(EditorKey::Verbatim(ctrl_key(' ')));
         mock.process_keypress(EditorKey::ArrowUp);
         mock.process_keypress(EditorKey::ArrowUp);
         mock.process_keypress(EditorKey::ArrowRight);
-        assert_eq!(mock.cursor_y, 0);
-        assert_eq!(mock.cursor_x, 1);
+        assert_eq!(mock.core.cursor_y, 0);
+        assert_eq!(mock.core.cursor_x, 1);
         mock.process_keypress(EditorKey::Delete);
-        assert_eq!(mock.rows.len(), 2);
+        assert_eq!(mock.core.rows.len(), 2);
         mock.refresh_screen();
     }
 
@@ -1758,13 +1788,13 @@ mod tests {
         mock.process_keypress(EditorKey::ArrowRight);
         mock.process_keypress(EditorKey::ArrowRight);
         mock.process_keypress(EditorKey::ArrowRight);
-        assert_eq!(None, mock.check_consistency());
-        assert_eq!(0, mock.cursor_x);
-        assert_eq!(3, mock.cursor_y);
+        assert_eq!(None, mock.core.check_consistency());
+        assert_eq!(0, mock.core.cursor_x);
+        assert_eq!(3, mock.core.cursor_y);
         mock.process_keypress(EditorKey::ArrowLeft);
-        assert_eq!(None, mock.check_consistency());
-        assert_eq!(2, mock.cursor_x);
-        assert_eq!(1, mock.cursor_y);
+        assert_eq!(None, mock.core.check_consistency());
+        assert_eq!(2, mock.core.cursor_x);
+        assert_eq!(1, mock.core.cursor_y);
     }
 
     #[test]
@@ -1785,7 +1815,7 @@ mod tests {
         mock2.process_keypress(EditorKey::ArrowDown);
         mock2.process_keypress(EditorKey::Verbatim(ctrl_key(' ')));
 
-        assert_eq!(mock1.folds, mock2.folds);
+        assert_eq!(mock1.core.folds, mock2.core.folds);
     }
     #[test]
     fn read_key_escapes() {
@@ -1821,14 +1851,12 @@ mod tests {
         mock.process_keypress(keypress);
 
         // Indicates the position of the match.
-        assert_eq!(2, mock.cursor_y);
-        assert_eq!(2, mock.cursor_x);
+        assert_eq!(2, mock.core.cursor_y);
+        assert_eq!(2, mock.core.cursor_x);
 
         // Highlighting should have been cleared.
-        assert!(mock.rows.iter().flat_map(|row| row.cells.iter()).all(
-            |cell| {
-                cell.hl == EditorHighlight::Normal
-            },
+        assert!(mock.core.rows.iter().flat_map(|row| row.cells.iter()).all(
+            |cell| cell.hl == EditorHighlight::Normal,
         ));
     }
 
@@ -1845,8 +1873,8 @@ mod tests {
         let keypress = read_key(&mut mock.input_source);
         mock.process_keypress(keypress);
 
-        assert_eq!(3, mock.cursor_y);
-        assert_eq!(0, mock.cursor_x);
+        assert_eq!(3, mock.core.cursor_y);
+        assert_eq!(0, mock.core.cursor_x);
     }
 
     #[test]
@@ -1874,19 +1902,19 @@ mod tests {
         // Search for ab
         let keypress = read_key(&mut mock.input_source);
         mock.process_keypress(keypress);
-        assert_eq!(1, mock.cursor_y);
+        assert_eq!(1, mock.core.cursor_y);
         assert_eq!("ab", mock.saved_search);
 
         // Clear the search
         let keypress = read_key(&mut mock.input_source);
         mock.process_keypress(keypress);
-        assert_eq!(1, mock.cursor_y);
+        assert_eq!(1, mock.core.cursor_y);
         assert_eq!("", mock.saved_search);
 
         // Search for c
         let keypress = read_key(&mut mock.input_source);
         mock.process_keypress(keypress);
-        assert_eq!(2, mock.cursor_y);
+        assert_eq!(2, mock.core.cursor_y);
 
         assert_eq!(mock.all_text(), text);
     }
@@ -1900,7 +1928,7 @@ mod tests {
 
         let keypress = read_key(&mut mock.input_source);
         mock.process_keypress(keypress);
-        assert_eq!(0, mock.cursor_x);
-        assert_eq!(0, mock.cursor_y);
+        assert_eq!(0, mock.core.cursor_x);
+        assert_eq!(0, mock.core.cursor_y);
     }
 }

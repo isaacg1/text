@@ -4,6 +4,7 @@ Cut, Copy, Paste
 Undo (Maybe too ambitious?)
 Multiline comments
 Autointent/Dedent chars
+Search finds multiple matches on same line
 
 Done:
 Refresh file (Ctrl-e)

@@ -72,7 +72,6 @@ struct EditorConfig<T: Read> {
     filename: Option<String>,
     status_message: String,
     status_message_time: Instant,
-    modified: bool,
     quit_times: usize,
     input_source: T,
     saved_search: String,
@@ -85,6 +84,7 @@ struct EditorCore {
     rows: Vec<Row>,
     syntax: Option<EditorSyntax>,
     folds: HashMap<usize, (usize, usize)>,
+    modified: bool,
 }
 
 #[derive(Copy, Clone)]
@@ -493,29 +493,23 @@ impl EditorCore {
         if self.cursor_y < self.rows.len() {
             let fold_depth = whitespace_depth(&self.rows[self.cursor_y]);
             let is_not_in_fold = |row| whitespace_depth(row) < fold_depth && !row.cells.is_empty();
-            let start = self
-                .rows
+            let start = self.rows
                 .iter()
                 .rev()
                 .skip(self.rows.len() - self.cursor_y)
                 .position(&is_not_in_fold)
                 .map_or(0, |reverse_offset| self.cursor_y - reverse_offset);
-            let end = self
-                .rows
+            let end = self.rows
                 .iter()
                 .skip(self.cursor_y + 1)
                 .position(&is_not_in_fold)
-                .map_or(
-                    self.rows.len() - 1,
-                    |offset| self.cursor_y + offset,
-                );
+                .map_or(self.rows.len() - 1, |offset| self.cursor_y + offset);
             self.folds.insert(start, (end, fold_depth));
             self.cursor_y = start;
         }
     }
     fn open_folds(&mut self) {
-        let to_remove: Vec<_> = self
-            .folds
+        let to_remove: Vec<_> = self.folds
             .iter()
             .filter_map(|(&start, &(end, _depth))| if start <= self.cursor_y &&
                 self.cursor_y <= end
@@ -655,6 +649,47 @@ impl EditorCore {
             self.update_row_highlights(row_index + 1);
         }
     }
+    fn insert_char(&mut self, c: char) {
+        if self.cursor_y == self.rows.len() {
+            self.rows.push(Row {
+                cells: Vec::new(),
+                open_quote: None,
+            });
+        }
+        self.rows[self.cursor_y].cells.insert(
+            self.cursor_x,
+            Cell {
+                chr: c,
+                hl: EditorHighlight::Normal,
+            },
+        );
+        let index = self.cursor_y;
+        self.update_row_highlights(index);
+        self.cursor_x += 1;
+        self.modified = true;
+    }
+
+    fn insert_tab(&mut self) {
+        if self.cursor_y == self.rows.len() {
+            self.rows.push(Row {
+                cells: Vec::new(),
+                open_quote: None,
+            });
+        }
+        for _ in 0..4 - self.cursor_x % 4 {
+            self.rows[self.cursor_y].cells.insert(
+                self.cursor_x,
+                Cell {
+                    chr: ' ',
+                    hl: EditorHighlight::Normal,
+                },
+            );
+            self.cursor_x += 1;
+        }
+        let index = self.cursor_y;
+        self.update_row_highlights(index);
+        self.modified = true;
+    }
 }
 
 
@@ -683,6 +718,7 @@ where
                     syntax: None,
                     rows: vec![],
                     folds: HashMap::new(),
+                    modified: false,
                 },
                 filename: None,
                 screen_rows: ws.ws_row.checked_sub(2).expect("Need at least 2 rows") as usize,
@@ -691,7 +727,6 @@ where
                 col_offset: 0,
                 status_message: String::new(),
                 status_message_time: Instant::now(),
-                modified: false,
                 quit_times: 3,
                 input_source: io::stdin(),
                 saved_search: String::new(),
@@ -725,47 +760,6 @@ where
 
     /// * editor operations **
 
-    fn insert_char(&mut self, c: char) {
-        if self.core.cursor_y == self.core.rows.len() {
-            self.core.rows.push(Row {
-                cells: Vec::new(),
-                open_quote: None,
-            });
-        }
-        self.core.rows[self.core.cursor_y].cells.insert(
-            self.core.cursor_x,
-            Cell {
-                chr: c,
-                hl: EditorHighlight::Normal,
-            },
-        );
-        let index = self.core.cursor_y;
-        self.core.update_row_highlights(index);
-        self.core.cursor_x += 1;
-        self.modified = true;
-    }
-
-    fn insert_tab(&mut self) {
-        if self.core.cursor_y == self.core.rows.len() {
-            self.core.rows.push(Row {
-                cells: Vec::new(),
-                open_quote: None,
-            });
-        }
-        for _ in 0..4 - self.core.cursor_x % 4 {
-            self.core.rows[self.core.cursor_y].cells.insert(
-                self.core.cursor_x,
-                Cell {
-                    chr: ' ',
-                    hl: EditorHighlight::Normal,
-                },
-            );
-            self.core.cursor_x += 1;
-        }
-        let index = self.core.cursor_y;
-        self.core.update_row_highlights(index);
-        self.modified = true;
-    }
 
     fn insert_newline(&mut self) {
         let open_quote = if let Some(prev_y) = self.core.cursor_y.checked_sub(1) {
@@ -818,7 +812,7 @@ where
             })
         }
         self.core.cursor_y += 1;
-        self.modified = true;
+        self.core.modified = true;
     }
 
     fn shift_folds_back(&mut self) {
@@ -841,7 +835,7 @@ where
                 let index = self.core.cursor_y;
                 self.core.update_row_highlights(index);
             }
-            self.modified = true
+            self.core.modified = true
         }
     }
 
@@ -851,7 +845,7 @@ where
             let index = self.core.cursor_y;
             self.core.update_row_highlights(index);
             self.core.cursor_x = prev_x;
-            self.modified = true
+            self.core.modified = true
         } else if 0 < self.core.cursor_y && self.core.cursor_y < self.core.rows.len() {
             if self.core.folds.values().any(|&(end, _)| {
                 end == self.core.cursor_y - 1
@@ -870,7 +864,7 @@ where
                 self.core.cursor_y -= 1;
                 let index = self.core.cursor_y;
                 self.core.update_row_highlights(index);
-                self.modified = true
+                self.core.modified = true
             }
         }
     }
@@ -945,7 +939,7 @@ where
         let mut file = File::create(self.filename.as_ref().expect("Just set it"))?;
         let text = self.all_text();
         file.write_all(text.as_bytes())?;
-        self.modified = false;
+        self.core.modified = false;
         self.set_status_message(&format!("{} bytes written to disk", text.len()));
         Ok(())
     }
@@ -1159,7 +1153,7 @@ where
             || "[No Name]".to_string(),
         );
         name.truncate(20);
-        let dirty = if self.modified { "(modified)" } else { "" };
+        let dirty = if self.core.modified { "(modified)" } else { "" };
         let paste = if self.paste_mode { "(paste)" } else { "" };
         let mut status = format!("{} {} {}", name, dirty, paste);
         status.truncate(self.screen_cols);
@@ -1345,7 +1339,7 @@ where
     // Return value indicates whether we should continue processing keypresses.
     fn process_keypress(&mut self, c: EditorKey) -> bool {
         if c == EditorKey::Verbatim(ctrl_key('q')) {
-            if self.modified && self.quit_times > 0 {
+            if self.core.modified && self.quit_times > 0 {
                 let quit_times = self.quit_times;
                 self.set_status_message(&format!(
                     "Warning: File has unsaved changes. \
@@ -1366,7 +1360,7 @@ where
                 EditorKey::Home | EditorKey::End => self.move_cursor(c),
                 EditorKey::Verbatim(chr) if chr == '\x1b' || chr == ctrl_key('l') => (),
                 EditorKey::Verbatim(chr) if chr == ctrl_key('e') => {
-                    if self.modified {
+                    if self.core.modified {
                         self.set_status_message(
                             "File has unsaved changed, and \
                             cannot be refreshed. Quit and \
@@ -1408,8 +1402,8 @@ where
                     self.delete_char()
                 }
                 EditorKey::Verbatim(chr) if chr == ctrl_key('k') => self.delete_row(),
-                EditorKey::Verbatim('\t') => self.insert_tab(),
-                EditorKey::Verbatim(chr) => self.insert_char(chr),
+                EditorKey::Verbatim('\t') => self.core.insert_tab(),
+                EditorKey::Verbatim(chr) => self.core.insert_char(chr),
             };
             self.quit_times = 3;
             true
@@ -1467,6 +1461,7 @@ mod tests {
                 cursor_y: 0,
                 folds: HashMap::new(),
                 syntax: None,
+                modified: false,
             },
 
             filename: None,
@@ -1476,7 +1471,6 @@ mod tests {
             col_offset: 0,
             status_message: String::new(),
             status_message_time: Instant::now(),
-            modified: false,
             quit_times: 3,
             input_source: input.map_or(Box::new(io::empty()), |text| {
                 Box::new(FakeStdin::new(text.as_bytes()))

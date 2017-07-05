@@ -690,6 +690,145 @@ impl EditorCore {
         self.update_row_highlights(index);
         self.modified = true;
     }
+    fn insert_newline(&mut self, paste_mode: bool) {
+        let open_quote = if let Some(prev_y) = self.cursor_y.checked_sub(1) {
+            self.rows[prev_y].open_quote
+        } else {
+            None
+        };
+
+        if self.cursor_y < self.rows.len() {
+            let depth = if paste_mode {
+                0
+            } else {
+                whitespace_depth(&self.rows[self.cursor_y])
+            };
+            // If in the whitespace, insert blank line.
+            if depth >= self.cursor_x {
+                self.rows.insert(
+                    self.cursor_y,
+                    Row {
+                        cells: vec![],
+                        open_quote: open_quote,
+                    },
+                );
+            } else {
+                let cells_end = self.rows[self.cursor_y].cells.split_off(self.cursor_x);
+                let mut next_row_cells = self.rows[self.cursor_y].cells[..depth].to_vec();
+                next_row_cells.extend(cells_end);
+                let next_row = Row {
+                    cells: next_row_cells,
+                    open_quote: None,
+                };
+                self.rows.insert(self.cursor_y + 1, next_row);
+            }
+            for row_index in (self.cursor_y..self.rows.len()).rev() {
+                if let Some((end, depth)) = self.folds.remove(&row_index) {
+                    self.folds.insert(row_index + 1, (end + 1, depth));
+                }
+            }
+            let index = self.cursor_y;
+            self.update_row_highlights(index);
+            self.update_row_highlights(index + 1);
+
+            self.cursor_x = depth;
+        } else {
+            self.rows.push(Row {
+                cells: vec![],
+                open_quote: open_quote,
+            })
+        }
+        self.cursor_y += 1;
+        self.modified = true;
+    }
+    fn shift_folds_back(&mut self) {
+        for row_index in self.cursor_y..self.rows.len() + 1 {
+            if let Some((end, depth)) = self.folds.remove(&row_index) {
+                self.folds.insert(row_index - 1, (end - 1, depth));
+            }
+        }
+    }
+
+    fn delete_row(&mut self) {
+        if self.cursor_y < self.rows.len() {
+            if self.cursor_x == 0 {
+                self.rows.remove(self.cursor_y);
+                self.shift_folds_back();
+            } else {
+                self.rows[self.cursor_y].cells.truncate(self.cursor_x);
+                let index = self.cursor_y;
+                self.update_row_highlights(index);
+            }
+            self.modified = true
+        }
+    }
+
+    fn delete_char(&mut self) -> Result<(), String> {
+        if let Some(prev_x) = self.cursor_x.checked_sub(1) {
+            self.rows[self.cursor_y].cells.remove(prev_x);
+            let index = self.cursor_y;
+            self.update_row_highlights(index);
+            self.cursor_x = prev_x;
+            self.modified = true;
+            Ok(())
+        } else if 0 < self.cursor_y && self.cursor_y < self.rows.len() {
+            if self.folds.values().any(
+                |&(end, _)| end == self.cursor_y - 1,
+            )
+            {
+                Err(DONT_EDIT_FOLDS.to_owned())
+            } else {
+                self.cursor_x = self.rows[self.cursor_y - 1].cells.len();
+                let moved_line = self.rows.remove(self.cursor_y);
+                let line_to_append = &moved_line.cells[whitespace_depth(&moved_line)..];
+                self.rows[self.cursor_y - 1].cells.extend(line_to_append);
+                self.rows[self.cursor_y - 1].open_quote = moved_line.open_quote;
+                self.shift_folds_back();
+                self.cursor_y -= 1;
+                let index = self.cursor_y;
+                self.update_row_highlights(index);
+                self.modified = true;
+                Ok(())
+            }
+        } else {
+            Ok(())
+        }
+    }
+    fn load_text(&mut self, text: &str) {
+        self.rows = vec![];
+        self.folds = HashMap::new();
+
+        let mut row_buffer = String::new();
+        for byte in text.bytes() {
+            let c = byte as char;
+            if c == '\n' {
+                let row = string_to_row(&row_buffer);
+                let update_index = self.rows.len();
+                self.rows.push(row);
+                self.update_row_highlights(update_index);
+                row_buffer.truncate(0);
+            } else {
+                row_buffer.push(c);
+            }
+        }
+        let row = string_to_row(&row_buffer);
+        let update_index = self.rows.len();
+        self.rows.push(row);
+        self.update_row_highlights(update_index);
+
+        self.cursor_y = min(self.cursor_y, self.rows.len());
+        self.cursor_x = 0;
+    }
+
+    fn all_text(&self) -> String {
+        self
+            .rows
+            .iter()
+            .map(|row| row_to_string(row))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
 }
 
 
@@ -758,117 +897,6 @@ where
         }
     }
 
-    /// * editor operations **
-
-
-    fn insert_newline(&mut self) {
-        let open_quote = if let Some(prev_y) = self.core.cursor_y.checked_sub(1) {
-            self.core.rows[prev_y].open_quote
-        } else {
-            None
-        };
-
-        if self.core.cursor_y < self.core.rows.len() {
-            let depth = if self.paste_mode {
-                0
-            } else {
-                whitespace_depth(&self.core.rows[self.core.cursor_y])
-            };
-            // If in the whitespace, insert blank line.
-            if depth >= self.core.cursor_x {
-                self.core.rows.insert(
-                    self.core.cursor_y,
-                    Row {
-                        cells: vec![],
-                        open_quote: open_quote,
-                    },
-                );
-            } else {
-                let cells_end = self.core.rows[self.core.cursor_y].cells.split_off(
-                    self.core.cursor_x,
-                );
-                let mut next_row_cells = self.core.rows[self.core.cursor_y].cells[..depth].to_vec();
-                next_row_cells.extend(cells_end);
-                let next_row = Row {
-                    cells: next_row_cells,
-                    open_quote: None,
-                };
-                self.core.rows.insert(self.core.cursor_y + 1, next_row);
-            }
-            for row_index in (self.core.cursor_y..self.core.rows.len()).rev() {
-                if let Some((end, depth)) = self.core.folds.remove(&row_index) {
-                    self.core.folds.insert(row_index + 1, (end + 1, depth));
-                }
-            }
-            let index = self.core.cursor_y;
-            self.core.update_row_highlights(index);
-            self.core.update_row_highlights(index + 1);
-
-            self.core.cursor_x = depth;
-        } else {
-            self.core.rows.push(Row {
-                cells: vec![],
-                open_quote: open_quote,
-            })
-        }
-        self.core.cursor_y += 1;
-        self.core.modified = true;
-    }
-
-    fn shift_folds_back(&mut self) {
-        for row_index in self.core.cursor_y..self.core.rows.len() + 1 {
-            if let Some((end, depth)) = self.core.folds.remove(&row_index) {
-                self.core.folds.insert(row_index - 1, (end - 1, depth));
-            }
-        }
-    }
-
-    fn delete_row(&mut self) {
-        if self.core.cursor_y < self.core.rows.len() {
-            if self.core.cursor_x == 0 {
-                self.core.rows.remove(self.core.cursor_y);
-                self.shift_folds_back();
-            } else {
-                self.core.rows[self.core.cursor_y].cells.truncate(
-                    self.core.cursor_x,
-                );
-                let index = self.core.cursor_y;
-                self.core.update_row_highlights(index);
-            }
-            self.core.modified = true
-        }
-    }
-
-    fn delete_char(&mut self) {
-        if let Some(prev_x) = self.core.cursor_x.checked_sub(1) {
-            self.core.rows[self.core.cursor_y].cells.remove(prev_x);
-            let index = self.core.cursor_y;
-            self.core.update_row_highlights(index);
-            self.core.cursor_x = prev_x;
-            self.core.modified = true
-        } else if 0 < self.core.cursor_y && self.core.cursor_y < self.core.rows.len() {
-            if self.core.folds.values().any(|&(end, _)| {
-                end == self.core.cursor_y - 1
-            })
-            {
-                self.set_status_message(DONT_EDIT_FOLDS);
-            } else {
-                self.core.cursor_x = self.core.rows[self.core.cursor_y - 1].cells.len();
-                let moved_line = self.core.rows.remove(self.core.cursor_y);
-                let line_to_append = &moved_line.cells[whitespace_depth(&moved_line)..];
-                self.core.rows[self.core.cursor_y - 1].cells.extend(
-                    line_to_append,
-                );
-                self.core.rows[self.core.cursor_y - 1].open_quote = moved_line.open_quote;
-                self.shift_folds_back();
-                self.core.cursor_y -= 1;
-                let index = self.core.cursor_y;
-                self.core.update_row_highlights(index);
-                self.core.modified = true
-            }
-        }
-    }
-
     /// * file i/o **
     fn open(&mut self) -> io::Result<()> {
         let filename = self.filename.clone().expect(
@@ -882,44 +910,9 @@ where
         let mut file = File::open(&filename)?;
         let mut string = String::new();
         file.read_to_string(&mut string)?;
-        self.load_text(&string);
-        Ok(())
-    }
-
-    fn load_text(&mut self, text: &str) {
-        self.core.rows = vec![];
-        self.core.folds = HashMap::new();
-
-        let mut row_buffer = String::new();
-        for byte in text.bytes() {
-            let c = byte as char;
-            if c == '\n' {
-                let row = string_to_row(&row_buffer);
-                let update_index = self.core.rows.len();
-                self.core.rows.push(row);
-                self.core.update_row_highlights(update_index);
-                row_buffer.truncate(0);
-            } else {
-                row_buffer.push(c);
-            }
-        }
-        let row = string_to_row(&row_buffer);
-        let update_index = self.core.rows.len();
-        self.core.rows.push(row);
-        self.core.update_row_highlights(update_index);
-
-        self.core.cursor_y = min(self.core.cursor_y, self.core.rows.len());
-        self.core.cursor_x = 0;
+        self.core.load_text(&string);
         self.scroll();
-    }
-
-    fn all_text(&self) -> String {
-        self.core
-            .rows
-            .iter()
-            .map(|row| row_to_string(row))
-            .collect::<Vec<_>>()
-            .join("\n")
+        Ok(())
     }
 
     fn save(&mut self) -> io::Result<()> {
@@ -937,7 +930,7 @@ where
         };
 
         let mut file = File::create(self.filename.as_ref().expect("Just set it"))?;
-        let text = self.all_text();
+        let text = self.core.all_text();
         file.write_all(text.as_bytes())?;
         self.core.modified = false;
         self.set_status_message(&format!("{} bytes written to disk", text.len()));
@@ -1387,7 +1380,7 @@ where
                 EditorKey::Verbatim(_) if self.core.folds.contains_key(&self.core.cursor_y) => {
                     self.set_status_message(DONT_EDIT_FOLDS);
                 }
-                EditorKey::Verbatim('\r') => self.insert_newline(),
+                EditorKey::Verbatim('\r') => self.core.insert_newline(self.paste_mode),
                 EditorKey::Delete => {
                     if self.core.folds.contains_key(&(self.core.cursor_y + 1)) &&
                         self.core.cursor_x == self.core.rows[self.core.cursor_y].cells.len()
@@ -1395,13 +1388,21 @@ where
                         self.set_status_message(DONT_EDIT_FOLDS);
                     } else {
                         self.move_cursor(EditorKey::ArrowRight);
-                        self.delete_char();
+                        let delete_result = self.core.delete_char();
+                        if let Err(reason) = delete_result {
+                            assert_eq!(reason, DONT_EDIT_FOLDS);
+                            self.set_status_message(DONT_EDIT_FOLDS);
+                        }
                     }
                 }
                 EditorKey::Verbatim(chr) if chr as usize == 127 || chr == ctrl_key('h') => {
-                    self.delete_char()
+                    let delete_result = self.core.delete_char();
+                    if let Err(reason) = delete_result {
+                        assert_eq!(reason, DONT_EDIT_FOLDS);
+                        self.set_status_message(DONT_EDIT_FOLDS);
+                    }
                 }
-                EditorKey::Verbatim(chr) if chr == ctrl_key('k') => self.delete_row(),
+                EditorKey::Verbatim(chr) if chr == ctrl_key('k') => self.core.delete_row(),
                 EditorKey::Verbatim('\t') => self.core.insert_tab(),
                 EditorKey::Verbatim(chr) => self.core.insert_char(chr),
             };
@@ -1507,7 +1508,7 @@ mod tests {
     #[test]
     fn empty_text() {
         let mock = mock_editor(None);
-        let text = mock.all_text();
+        let text = mock.core.all_text();
         assert_eq!(text, "");
         assert_eq!(None, mock.core.check_consistency())
     }
@@ -1517,8 +1518,8 @@ mod tests {
         let mut mock = mock_editor(None);
         let line = "Hello, world";
 
-        mock.load_text(line);
-        let text = mock.all_text();
+        mock.core.load_text(line);
+        let text = mock.core.all_text();
 
         assert_eq!(line, text);
         assert_eq!(None, mock.core.check_consistency())
@@ -1529,8 +1530,8 @@ mod tests {
         let mut mock = mock_editor(None);
         let lines = "This\n    might\n    or might not\n    work.\n    \n";
 
-        mock.load_text(lines);
-        let text = mock.all_text();
+        mock.core.load_text(lines);
+        let text = mock.core.all_text();
 
         assert_eq!(lines, text);
         assert_eq!(None, mock.core.check_consistency())
@@ -1545,7 +1546,7 @@ mod tests {
             mock.process_keypress(EditorKey::Verbatim(c));
         }
 
-        assert_eq!(typed_text, mock.all_text());
+        assert_eq!(typed_text, mock.core.all_text());
         assert_eq!(None, mock.core.check_consistency())
     }
 
@@ -1561,7 +1562,7 @@ mod tests {
 
         let reversed_text = typed_text.chars().rev().collect::<String>();
 
-        assert_eq!(reversed_text, mock.all_text());
+        assert_eq!(reversed_text, mock.core.all_text());
         assert_eq!(None, mock.core.check_consistency())
     }
 
@@ -1570,7 +1571,7 @@ mod tests {
         let text = "Hello, world!";
 
         let mut mock = mock_editor(None);
-        mock.load_text(text);
+        mock.core.load_text(text);
 
         for _ in 0..3 {
             for _ in 0..6 {
@@ -1578,7 +1579,7 @@ mod tests {
             }
             mock.process_keypress(EditorKey::Verbatim('\r'));
         }
-        assert_eq!(mock.all_text(), "Hello,\n world\n !\n");
+        assert_eq!(mock.core.all_text(), "Hello,\n world\n !\n");
     }
 
     #[test]
@@ -1605,7 +1606,7 @@ mod tests {
         mock.filename = Some("main.rs".to_string());
         mock.activate_syntax();
 
-        mock.load_text(text);
+        mock.core.load_text(text);
 
         assert_eq!(mock.core.rows.len(), 4);
         assert!(mock.core.rows[0].cells[..2].iter().all(|cell| {
@@ -1650,7 +1651,7 @@ mod tests {
         mock.filename = Some("main.rs".to_string());
         mock.activate_syntax();
 
-        mock.load_text(text);
+        mock.core.load_text(text);
 
         assert_eq!(mock.core.rows.len(), 3);
         assert!(mock.core.rows[0].cells[..8].iter().all(|cell| {
@@ -1678,7 +1679,7 @@ mod tests {
         mock.filename = Some("main.rs".to_string());
         mock.activate_syntax();
 
-        mock.load_text(text);
+        mock.core.load_text(text);
 
         assert_eq!(mock.core.rows[1].cells[0].hl, EditorHighlight::String);
         mock.process_keypress(EditorKey::Delete);
@@ -1693,7 +1694,7 @@ mod tests {
         mock.filename = Some("main.rs".to_string());
         mock.activate_syntax();
 
-        mock.load_text(text);
+        mock.core.load_text(text);
 
         assert_eq!(mock.core.rows[2].cells[0].hl, EditorHighlight::String);
     }
@@ -1705,7 +1706,7 @@ mod tests {
         let mut mock = mock_editor(None);
         mock.filename = Some("main.rs".to_string());
         mock.activate_syntax();
-        mock.load_text(text);
+        mock.core.load_text(text);
 
         assert_eq!(mock.core.rows[1].cells[0].hl, EditorHighlight::Normal);
     }
@@ -1715,7 +1716,7 @@ mod tests {
         let text = "a\nb\n c";
 
         let mut mock = mock_editor(None);
-        mock.load_text(text);
+        mock.core.load_text(text);
 
         assert_eq!(mock.core.rows.len(), 3);
 
@@ -1738,21 +1739,21 @@ mod tests {
         let text = "a\n b";
 
         let mut mock = mock_editor(None);
-        mock.load_text(text);
+        mock.core.load_text(text);
 
         mock.process_keypress(EditorKey::ArrowDown);
         mock.process_keypress(EditorKey::Verbatim(ctrl_key(' ')));
         mock.process_keypress(EditorKey::ArrowUp);
         mock.process_keypress(EditorKey::Verbatim(ctrl_key('k')));
         mock.refresh_screen();
-        assert_eq!(" b", mock.all_text());
+        assert_eq!(" b", mock.core.all_text());
     }
 
     #[test]
     fn fold_next_to_empty_line() {
         let text = "\na\n";
         let mut mock = mock_editor(None);
-        mock.load_text(text);
+        mock.core.load_text(text);
 
         mock.process_keypress(EditorKey::ArrowDown);
         mock.process_keypress(EditorKey::Verbatim(ctrl_key(' ')));
@@ -1764,7 +1765,7 @@ mod tests {
         let text = "a\n b\n c\nd";
 
         let mut mock = mock_editor(None);
-        mock.load_text(text);
+        mock.core.load_text(text);
 
         mock.process_keypress(EditorKey::ArrowDown);
         mock.process_keypress(EditorKey::Verbatim(ctrl_key(' ')));
@@ -1785,11 +1786,11 @@ mod tests {
         let text = "a\n  b\n c\nd\n e\n f";
 
         let mut mock1 = mock_editor(None);
-        mock1.load_text(text);
+        mock1.core.load_text(text);
         mock1.process_keypress(EditorKey::Verbatim(ctrl_key(' ')));
 
         let mut mock2 = mock_editor(None);
-        mock2.load_text(text);
+        mock2.core.load_text(text);
         mock2.process_keypress(EditorKey::ArrowDown);
         mock2.process_keypress(EditorKey::Verbatim(ctrl_key(' ')));
         mock2.process_keypress(EditorKey::ArrowDown);
@@ -1809,7 +1810,7 @@ mod tests {
             mock.process_keypress(keypress);
         }
 
-        assert_eq!("We say Hi!\nOk, bye.", mock.all_text())
+        assert_eq!("We say Hi!\nOk, bye.", mock.core.all_text())
     }
 
     #[test]
@@ -1829,7 +1830,7 @@ mod tests {
 
         let mut mock = mock_editor(Some(keys));
 
-        mock.load_text(text);
+        mock.core.load_text(text);
         let keypress = read_key(&mut mock.input_source);
         mock.process_keypress(keypress);
 
@@ -1852,7 +1853,7 @@ mod tests {
 
         let mut mock = mock_editor(Some(keys));
 
-        mock.load_text(text);
+        mock.core.load_text(text);
         let keypress = read_key(&mut mock.input_source);
         mock.process_keypress(keypress);
 
@@ -1871,7 +1872,7 @@ mod tests {
         }
 
         let out_test = "    \na   ";
-        assert_eq!(out_test, mock.all_text());
+        assert_eq!(out_test, mock.core.all_text());
     }
 
     #[test]
@@ -1880,7 +1881,7 @@ mod tests {
         // Ctrl-f, ab, enter, Ctrl-f, ArrowRight, Esc, Ctrl-f, c, enter
         let keys = "\x06ab\r\x06\x1b[C \x1b   \x06c\r";
         let mut mock = mock_editor(Some(keys));
-        mock.load_text(text);
+        mock.core.load_text(text);
 
         // Search for ab
         let keypress = read_key(&mut mock.input_source);
@@ -1899,7 +1900,7 @@ mod tests {
         mock.process_keypress(keypress);
         assert_eq!(2, mock.core.cursor_y);
 
-        assert_eq!(mock.all_text(), text);
+        assert_eq!(mock.core.all_text(), text);
     }
 
     #[test]
@@ -1907,7 +1908,7 @@ mod tests {
         let text = "Hi!";
         let keys = "\x1b[D ";
         let mut mock = mock_editor(Some(keys));
-        mock.load_text(text);
+        mock.core.load_text(text);
 
         let keypress = read_key(&mut mock.input_source);
         mock.process_keypress(keypress);

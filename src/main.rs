@@ -549,64 +549,6 @@ impl EditorCore {
             prev_index
         }
     }
-}
-
-
-impl<T> EditorConfig<T>
-where
-    T: Read,
-{
-    fn new() -> EditorConfig<io::Stdin> {
-        let mut ws = libc::winsize {
-            ws_row: 0,
-            ws_col: 0,
-            ws_xpixel: 0,
-            ws_ypixel: 0,
-        };
-        let res;
-        unsafe {
-            res = libc::ioctl(STDOUT, libc::TIOCGWINSZ, &mut ws);
-        }
-        if res == -1 || ws.ws_col == 0 {
-            panic!("Editor config failed.");
-        } else {
-            EditorConfig {
-                core: EditorCore {
-                    cursor_x: 0,
-                    cursor_y: 0,
-                    syntax: None,
-                    rows: vec![],
-                    folds: HashMap::new(),
-                },
-                filename: None,
-                screen_rows: ws.ws_row.checked_sub(2).expect("Need at least 2 rows") as usize,
-                screen_cols: ws.ws_col as usize,
-                row_offset: 0,
-                col_offset: 0,
-                status_message: String::new(),
-                status_message_time: Instant::now(),
-                modified: false,
-                quit_times: 3,
-                input_source: io::stdin(),
-                saved_search: String::new(),
-                paste_mode: false,
-            }
-        }
-    }
-
-    fn warn_consistency(&mut self) {
-        let failure = {
-            self.core.check_consistency()
-        };
-        if let Some(message) = failure {
-            self.set_status_message(message);
-        }
-    }
-
-    fn toggle_paste_mode(&mut self) {
-        self.paste_mode = !self.paste_mode;
-    }
-
     /// * row operations **
 
     // Assumes that index is past the open quote, returns final position of index, whether
@@ -615,11 +557,11 @@ where
     fn update_row_highlights(&mut self, row_index: usize) {
         let prev_open_quote: Option<char> = row_index
             .checked_sub(1)
-            .and_then(|prev_index| self.core.rows.get(prev_index))
+            .and_then(|prev_index| self.rows.get(prev_index))
             .and_then(|prev_row| prev_row.open_quote);
         let mut update_next = false;
-        if let Some(mut row) = self.core.rows.get_mut(row_index) {
-            if let Some(ref syntax) = self.core.syntax {
+        if let Some(mut row) = self.rows.get_mut(row_index) {
+            if let Some(ref syntax) = self.syntax {
                 if row.open_quote.is_some() {
                     update_next = true;
                 }
@@ -709,17 +651,75 @@ where
                 }
             }
         }
-        if row_index < self.core.rows.len() && update_next {
+        if row_index < self.rows.len() && update_next {
             self.update_row_highlights(row_index + 1);
         }
     }
+}
+
+
+impl<T> EditorConfig<T>
+where
+    T: Read,
+{
+    fn new() -> EditorConfig<io::Stdin> {
+        let mut ws = libc::winsize {
+            ws_row: 0,
+            ws_col: 0,
+            ws_xpixel: 0,
+            ws_ypixel: 0,
+        };
+        let res;
+        unsafe {
+            res = libc::ioctl(STDOUT, libc::TIOCGWINSZ, &mut ws);
+        }
+        if res == -1 || ws.ws_col == 0 {
+            panic!("Editor config failed.");
+        } else {
+            EditorConfig {
+                core: EditorCore {
+                    cursor_x: 0,
+                    cursor_y: 0,
+                    syntax: None,
+                    rows: vec![],
+                    folds: HashMap::new(),
+                },
+                filename: None,
+                screen_rows: ws.ws_row.checked_sub(2).expect("Need at least 2 rows") as usize,
+                screen_cols: ws.ws_col as usize,
+                row_offset: 0,
+                col_offset: 0,
+                status_message: String::new(),
+                status_message_time: Instant::now(),
+                modified: false,
+                quit_times: 3,
+                input_source: io::stdin(),
+                saved_search: String::new(),
+                paste_mode: false,
+            }
+        }
+    }
+
+    fn warn_consistency(&mut self) {
+        let failure = {
+            self.core.check_consistency()
+        };
+        if let Some(message) = failure {
+            self.set_status_message(message);
+        }
+    }
+
+    fn toggle_paste_mode(&mut self) {
+        self.paste_mode = !self.paste_mode;
+    }
+
 
     fn activate_syntax(&mut self) {
         self.core.syntax = self.filename.as_ref().and_then(|filename| {
             EditorSyntax::for_filename(filename)
         });
         for index in 0..self.core.rows.len() {
-            self.update_row_highlights(index);
+            self.core.update_row_highlights(index);
         }
     }
 
@@ -740,7 +740,7 @@ where
             },
         );
         let index = self.core.cursor_y;
-        self.update_row_highlights(index);
+        self.core.update_row_highlights(index);
         self.core.cursor_x += 1;
         self.modified = true;
     }
@@ -763,7 +763,7 @@ where
             self.core.cursor_x += 1;
         }
         let index = self.core.cursor_y;
-        self.update_row_highlights(index);
+        self.core.update_row_highlights(index);
         self.modified = true;
     }
 
@@ -807,8 +807,8 @@ where
                 }
             }
             let index = self.core.cursor_y;
-            self.update_row_highlights(index);
-            self.update_row_highlights(index + 1);
+            self.core.update_row_highlights(index);
+            self.core.update_row_highlights(index + 1);
 
             self.core.cursor_x = depth;
         } else {
@@ -839,7 +839,7 @@ where
                     self.core.cursor_x,
                 );
                 let index = self.core.cursor_y;
-                self.update_row_highlights(index);
+                self.core.update_row_highlights(index);
             }
             self.modified = true
         }
@@ -849,7 +849,7 @@ where
         if let Some(prev_x) = self.core.cursor_x.checked_sub(1) {
             self.core.rows[self.core.cursor_y].cells.remove(prev_x);
             let index = self.core.cursor_y;
-            self.update_row_highlights(index);
+            self.core.update_row_highlights(index);
             self.core.cursor_x = prev_x;
             self.modified = true
         } else if 0 < self.core.cursor_y && self.core.cursor_y < self.core.rows.len() {
@@ -869,7 +869,7 @@ where
                 self.shift_folds_back();
                 self.core.cursor_y -= 1;
                 let index = self.core.cursor_y;
-                self.update_row_highlights(index);
+                self.core.update_row_highlights(index);
                 self.modified = true
             }
         }
@@ -903,7 +903,7 @@ where
                 let row = string_to_row(&row_buffer);
                 let update_index = self.core.rows.len();
                 self.core.rows.push(row);
-                self.update_row_highlights(update_index);
+                self.core.update_row_highlights(update_index);
                 row_buffer.truncate(0);
             } else {
                 row_buffer.push(c);
@@ -912,7 +912,7 @@ where
         let row = string_to_row(&row_buffer);
         let update_index = self.core.rows.len();
         self.core.rows.push(row);
-        self.update_row_highlights(update_index);
+        self.core.update_row_highlights(update_index);
 
         self.core.cursor_y = min(self.core.cursor_y, self.core.rows.len());
         self.core.cursor_x = 0;
@@ -955,7 +955,7 @@ where
     fn find_callback(&mut self, query: &str, key: EditorKey) {
         if self.core.cursor_y < self.core.rows.len() {
             let index = self.core.cursor_y;
-            self.update_row_highlights(index)
+            self.core.update_row_highlights(index)
         }
         if key != EditorKey::Verbatim('\r') && key != EditorKey::Verbatim('\x1b') {
             let match_line = {

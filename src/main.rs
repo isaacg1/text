@@ -722,12 +722,16 @@ impl EditorCore {
             if self.cursor_x == 0 {
                 self.rows.remove(self.cursor_y);
                 self.shift_folds_back();
+                self.modified = true;
+            } else if self.cursor_x == self.current_row_len() {
+                self.cursor_y = self.cursor_y + 1;
+                self.cursor_x = 0;
             } else {
                 self.rows[self.cursor_y].cells.truncate(self.cursor_x);
                 let index = self.cursor_y;
                 self.update_row_highlights(index);
+                self.modified = true;
             }
-            self.modified = true
         }
     }
 

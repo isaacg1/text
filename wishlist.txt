@@ -4,7 +4,6 @@ Cut, Copy, Paste
 Undo (Maybe too ambitious?)
 Multiline comments
 Autointent/Dedent chars
-Ctrl-k at end of line should delete next line
 
 Done:
 Refresh file (Ctrl-e)

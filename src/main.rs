@@ -1,10 +1,11 @@
 #![allow(unknown_lints)]
 #![warn(clippy_pedantic)]
 #![allow(print_stdout, missing_docs_in_private_items)]
+#![feature(associated_consts)]
 extern crate termios;
 extern crate libc;
 
-use std::io::{self, Read, Write};
+use std::io::{self, Read, Write, BufWriter};
 use std::fs::File;
 use std::path::Path;
 use std::env;
@@ -122,6 +123,12 @@ impl EditorHighlight {
         });
         color_string
     }
+    const KEYWORDS: [Self; 4] = [
+        EditorHighlight::Keyword1,
+        EditorHighlight::Keyword2,
+        EditorHighlight::Keyword3,
+        EditorHighlight::Keyword4,
+    ];
 }
 
 #[derive(Copy, Clone, PartialEq)]
@@ -592,14 +599,7 @@ impl EditorCore {
                             if index == 0 || is_separator(cells[index - 1].chr) {
                                 let following_string: String = cells_to_string(&cells[index..]);
                                 for (keywords, &highlight) in
-                                    syntax.keywords.iter().zip(
-                                        [
-                                            EditorHighlight::Keyword1,
-                                            EditorHighlight::Keyword2,
-                                            EditorHighlight::Keyword3,
-                                            EditorHighlight::Keyword4,
-                                        ].iter(),
-                                    )
+                                    syntax.keywords.iter().zip(EditorHighlight::KEYWORDS.iter())
                                 {
                                     for keyword in keywords {
                                         let keyword_end = index + keyword.len();
@@ -1025,7 +1025,7 @@ where
         }
     }
 
-    fn draw_rows(&self, append_buffer: &mut String) {
+    fn draw_rows<W: Write>(&self, output_buffer: &mut W) -> io::Result<()> {
         let tab = &" ".repeat(TAB_STOP);
         let mut screen_y = 0;
         let mut file_row = self.row_offset;
@@ -1048,14 +1048,14 @@ where
                 let mut fold_white_str = row_to_string(&fold_white_visible).replace("\t", tab);
                 let fold_msg = format!("{} lines folded.", fold_end - file_row + 1);
                 fold_white_str.truncate(self.screen_cols.saturating_sub(fold_msg.len()));
-                append_buffer.push_str(&fold_white_str);
-                append_buffer.push_str(INVERT_COLORS);
-                append_buffer.push_str(&fold_msg);
+                write!(output_buffer, "{}", fold_white_str)?;
+                write!(output_buffer, "{}", INVERT_COLORS)?;
+                write!(output_buffer, "{}", fold_msg)?;
                 let padding = self.screen_cols.saturating_sub(
                     fold_msg.len() + fold_white_str.len(),
                 );
-                append_buffer.push_str(&" ".repeat(padding));
-                append_buffer.push_str(REVERT_COLORS);
+                write!(output_buffer, "{:width$}", "", width = padding)?;
+                write!(output_buffer, "{}", REVERT_COLORS)?;
                 file_row = fold_end + 1;
             } else if file_row < self.core.rows.len() {
                 let current_cells = &self.core.rows[file_row].cells;
@@ -1065,52 +1065,49 @@ where
                     for &Cell { chr, hl } in current_cells.iter().skip(self.col_offset) {
                         if hl != current_hl {
                             current_hl = hl;
-                            append_buffer.push_str(&hl.color());
+                            write!(output_buffer, "{}", hl.color())?;
                         }
                         chars_written += if chr == '\t' { TAB_STOP } else { 1 };
                         if chars_written > self.screen_cols {
                             break;
                         }
                         if chr == '\t' {
-                            append_buffer.push_str(tab);
+                            write!(output_buffer, "{}", tab)?;
                         } else if chr.is_control() {
-                            append_buffer.push_str(INVERT_COLORS);
+                            write!(output_buffer, "{}", INVERT_COLORS)?;
                             let sym = if chr.is_ascii() && chr as u8 <= 26 {
                                 (64 + (chr as u8)) as char
                             } else {
                                 '?'
                             };
-                            append_buffer.push(sym);
-                            append_buffer.push_str(REVERT_COLORS);
-                            append_buffer.push_str(&hl.color());
+                            write!(output_buffer, "{}", sym)?;
+                            write!(output_buffer, "{}", REVERT_COLORS)?;
+                            write!(output_buffer, "{}", hl.color())?;
                         } else {
-                            append_buffer.push(chr);
+                            write!(output_buffer, "{}", chr)?;
                         }
                     }
-                    append_buffer.push_str(REVERT_COLORS);
+                    write!(output_buffer, "{}", REVERT_COLORS)?;
                 }
                 file_row += 1;
             } else if self.core.rows.is_empty() && screen_y == self.screen_rows / 3 {
                 let welcome = format!("Isaac's editor -- version {}", IED_VERSION);
-                let padding = self.screen_cols.saturating_sub(welcome.len()) / 2;
-                if padding > 0 {
-                    append_buffer.push('~');
-                    append_buffer.push_str(&" ".repeat(padding - 1));
-                }
-                append_buffer.push_str(&welcome);
+                let padding = self.screen_cols.saturating_sub(welcome.len()+1);
+                write!(output_buffer, "~{:^width$}", welcome, width = padding)?;
                 file_row += 1;
             } else {
-                append_buffer.push('~');
+                write!(output_buffer, "~")?;
                 file_row += 1;
             };
-            append_buffer.push_str(CLEAR_RIGHT);
-            append_buffer.push_str("\r\n");
+            write!(output_buffer, "{}", CLEAR_RIGHT)?;
+            write!(output_buffer, "\r\n")?;
             screen_y += 1;
         }
+        Ok(())
     }
 
-    fn draw_status_bar(&self, append_buffer: &mut String) {
-        append_buffer.push_str(INVERT_COLORS);
+    fn draw_status_bar<W: Write>(&self, output_buffer: &mut W) -> io::Result<()> {
+        write!(output_buffer, "{}", INVERT_COLORS)?;
         let mut name = self.filename.clone().unwrap_or_else(
             || "[No Name]".to_string(),
         );
@@ -1119,10 +1116,10 @@ where
         let paste = if self.paste_mode { "(paste)" } else { "" };
         let mut status = format!("{} {} {}", name, dirty, paste);
         status.truncate(self.screen_cols);
-        append_buffer.push_str(&status);
+        write!(output_buffer, "{}", status)?;
         let filetype = match self.core.syntax {
             None => "no ft",
-            Some(ref syntax) => &syntax.filetype,
+            Some(ref syntax) => syntax.filetype,
         };
         let mut right_status = format!(
             "{} | r: {}/{}, c: {}/{}",
@@ -1136,40 +1133,37 @@ where
             )
         );
         right_status.truncate(self.screen_cols.saturating_sub(status.len() + 1));
-        append_buffer.push_str(&" ".repeat(self.screen_cols.saturating_sub(
-            status.len() + right_status.len(),
-        )));
-        append_buffer.push_str(&right_status);
-        append_buffer.push_str(REVERT_COLORS);
-        append_buffer.push_str("\r\n");
+        let room_remaining = self.screen_cols - status.len();
+        write!(output_buffer, "{:>width$}", right_status, width = room_remaining)?;
+        write!(output_buffer, "{}", REVERT_COLORS)?;
+        write!(output_buffer, "\r\n")?;
+        Ok(())
     }
 
-    fn draw_message_bar(&self, append_buffer: &mut String) {
-        append_buffer.push_str(CLEAR_RIGHT);
+    fn draw_message_bar<W: Write>(&self, output_buffer: &mut W) -> io::Result<()> {
+        write!(output_buffer, "{}", CLEAR_RIGHT)?;
         if self.status_message_time.elapsed().as_secs() < 5 {
             let mut message = self.status_message.clone();
             message.truncate(self.screen_cols);
-            append_buffer.push_str(&message);
+            write!(output_buffer, "{}", message)?;
         }
+        Ok(())
     }
 
-    fn refresh_screen(&mut self) {
+    fn refresh_screen(&mut self) -> io::Result<()> {
         self.scroll();
-        let mut append_buffer: String = String::new();
-        append_buffer.push_str(HIDE_CURSOR);
-        append_buffer.push_str(CURSOR_TOP_RIGHT);
+        let mut output_buffer = BufWriter::new(io::stdout());
+        write!(output_buffer, "{}", HIDE_CURSOR)?;
+        write!(output_buffer, "{}", CURSOR_TOP_RIGHT)?;
 
-        self.draw_rows(&mut append_buffer);
-        self.draw_status_bar(&mut append_buffer);
-        self.draw_message_bar(&mut append_buffer);
+        self.draw_rows(&mut output_buffer)?;
+        self.draw_status_bar(&mut output_buffer)?;
+        self.draw_message_bar(&mut output_buffer)?;
 
-        let cursor_control = format!("\x1b[{};{}H", self.screen_y() + 1, self.screen_x() + 1);
-        append_buffer.push_str(&cursor_control);
-        append_buffer.push_str(SHOW_CURSOR);
-        print!("{}", append_buffer);
-        io::stdout().flush().expect(
-            "Flushing to stdout should work",
-        );
+        write!(output_buffer, "\x1b[{};{}H", self.screen_y() + 1, self.screen_x() + 1)?;
+        write!(output_buffer, "{}", SHOW_CURSOR)?;
+        output_buffer.flush()?;
+        Ok(())
     }
 
     fn set_status_message(&mut self, message: &str) {
@@ -1188,7 +1182,7 @@ where
         let mut response: String = initial_response.to_owned();
         loop {
             self.set_status_message(&format!("{}{}", prompt, response));
-            self.refresh_screen();
+            self.refresh_screen().expect("Screen should refresh successfully");
 
             let c = read_key(&mut self.input_source);
             macro_rules! maybe_callback {
@@ -1396,7 +1390,7 @@ fn run() {
     );
     loop {
         editor_config.warn_consistency();
-        editor_config.refresh_screen();
+        editor_config.refresh_screen().expect("Screen should refresh successfully");
         let keypress = read_key(&mut editor_config.input_source);
         let to_continue = editor_config.process_keypress(keypress);
         if !to_continue {

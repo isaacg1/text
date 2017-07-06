@@ -144,23 +144,23 @@ fn ctrl_key(k: char) -> char {
 
 /// * filetypes **
 struct EditorSyntax {
-    filetype: String,
-    extensions: Vec<String>,
+    filetype: &'static str,
+    extensions: Vec<&'static str>,
     has_digits: bool,
-    quotes: String,
-    singleline_comment: String,
-    keywords: [Vec<String>; 4],
+    quotes: &'static str,
+    singleline_comment: &'static str,
+    keywords: [Vec<&'static str>; 4],
 }
 
 impl EditorSyntax {
     fn for_filename(filename: &str) -> Option<EditorSyntax> {
         let syntax_database = vec![
             EditorSyntax {
-                filetype: "rust".to_string(),
-                extensions: vec![".rs".to_string()],
+                filetype: "rust",
+                extensions: vec![".rs"],
                 has_digits: true,
-                quotes: "\"".to_string(),
-                singleline_comment: "//".to_string(),
+                quotes: "\"",
+                singleline_comment: "//",
                 keywords: [
                     vec![
                         "alignof",
@@ -191,9 +191,7 @@ impl EditorSyntax {
                         "where",
                         "while",
                         "yield",
-                    ].iter()
-                        .map(|x| x.to_string())
-                        .collect::<Vec<_>>(),
+                    ],
                     vec![
                         "box",
                         "mut",
@@ -203,13 +201,8 @@ impl EditorSyntax {
                         "static",
                         "struct",
                         "type",
-                    ].iter()
-                        .map(|x| x.to_string())
-                        .collect::<Vec<_>>(),
-                    vec!["false", "self", "Self", "super", "true"]
-                        .iter()
-                        .map(|x| x.to_string())
-                        .collect::<Vec<_>>(),
+                    ],
+                    vec!["false", "self", "Self", "super", "true"],
                     vec![
                         "bool",
                         "char",
@@ -226,25 +219,23 @@ impl EditorSyntax {
                         "u32",
                         "u64",
                         "usize",
-                    ].iter()
-                        .map(|x| x.to_string())
-                        .collect::<Vec<_>>(),
+                    ],
                 ],
             },
             EditorSyntax {
-                filetype: "c".to_string(),
-                extensions: vec![".c".to_string(), ".h".to_string(), ".cpp".to_string()],
+                filetype: "c",
+                extensions: vec![".c", ".h", ".cpp"],
                 has_digits: true,
-                quotes: "\"'".to_string(),
-                singleline_comment: "//".to_string(),
+                quotes: "\"'",
+                singleline_comment: "//",
                 keywords: [vec![], vec![], vec![], vec![]],
             },
             EditorSyntax {
-                filetype: "py".to_string(),
-                extensions: vec![".py".to_string()],
+                filetype: "py",
+                extensions: vec![".py"],
                 has_digits: true,
-                quotes: "\"'".to_string(),
-                singleline_comment: "#".to_string(),
+                quotes: "\"'",
+                singleline_comment: "#",
                 keywords: [
                     vec![
                         "break",
@@ -259,21 +250,10 @@ impl EditorSyntax {
                         "in",
                         "return",
                         "while",
-                    ].iter()
-                        .map(|x| x.to_string())
-                        .collect::<Vec<_>>(),
-                    vec!["any", "abs", "input", "int", "len", "range", "print", "zip"]
-                        .iter()
-                        .map(|x| x.to_string())
-                        .collect::<Vec<_>>(),
-                    vec!["False", "True"]
-                        .iter()
-                        .map(|x| x.to_string())
-                        .collect::<Vec<_>>(),
-                    vec!["and", "not", "or"]
-                        .iter()
-                        .map(|x| x.to_string())
-                        .collect::<Vec<_>>(),
+                    ],
+                    vec!["any", "abs", "input", "int", "len", "range", "print", "zip"],
+                    vec!["False", "True"],
+                    vec!["and", "not", "or"],
                 ],
             },
         ];

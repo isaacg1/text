@@ -821,14 +821,12 @@ impl EditorCore {
     }
 
     fn all_text(&self) -> String {
-        self
-            .rows
+        self.rows
             .iter()
             .map(|row| row_to_string(row))
             .collect::<Vec<_>>()
             .join("\n")
     }
-
 }
 
 
@@ -945,51 +943,42 @@ where
             self.core.update_row_highlights(index)
         }
         if key != EditorKey::Verbatim('\r') && key != EditorKey::Verbatim('\x1b') {
-            let match_line = {
-                let find_predicate = &|row: &Row| row_to_string(row).contains(query);
-                if key == EditorKey::ArrowRight || key == EditorKey::ArrowDown {
-                    let potential_match = if self.core.cursor_y + 1 < self.core.rows.len() {
-                        self.core
-                            .rows
-                            .iter()
-                            .skip(self.core.cursor_y + 1)
-                            .position(find_predicate)
-                            .map(|offset| offset + self.core.cursor_y + 1)
-                    } else {
-                        None
-                    };
-                    potential_match.or_else(|| self.core.rows.iter().position(find_predicate))
-                } else if key == EditorKey::ArrowLeft || key == EditorKey::ArrowUp {
-                    let potential_match = self.core.rows[..self.core.cursor_y].iter().rposition(
-                        find_predicate,
-                    );
-                    potential_match.or_else(|| self.core.rows.iter().rposition(find_predicate))
-                } else {
-                    let potential_match = if self.core.cursor_y < self.core.rows.len() {
-                        self.core
-                            .rows
-                            .iter()
-                            .skip(self.core.cursor_y)
-                            .position(find_predicate)
-                            .map(|offset| offset + self.core.cursor_y)
-                    } else {
-                        None
-                    };
-                    potential_match.or_else(|| self.core.rows.iter().position(find_predicate))
+            let mut matches: Vec<(usize, usize)> = self.core
+                .rows
+                .iter()
+                .enumerate()
+                .flat_map(|(row_index, row)| {
+                    row_to_string(row)
+                        .match_indices(query)
+                        .map(|(char_index, _)| (row_index, char_index))
+                        .collect::<Vec<(usize, usize)>>()
+                })
+                .collect();
+            // We sort by ! of whether the row index is forward,
+            // So that the matches behind the current location are cyclically moved to the end.
+            matches.sort_by_key(|&(row_index, col_index)| {
+                !{
+                    row_index > self.core.cursor_y ||
+                        row_index == self.core.cursor_y && col_index >= self.core.cursor_x
                 }
+            });
+            let best_match = if key == EditorKey::ArrowRight || key == EditorKey::ArrowDown {
+                // Skip the match at the current location
+                matches.get(1)
+            } else if key == EditorKey::ArrowLeft || key == EditorKey::ArrowUp {
+                matches.last()
+            } else {
+                matches.get(0)
             };
-            if let Some(match_line) = match_line {
-                let match_index = row_to_string(&self.core.rows[match_line])
-                    .find(query)
-                    .expect("We just checked the row contained the string");
-                self.core.cursor_y = match_line;
+            if let Some(&(row_index, col_index)) = best_match {
+                self.core.cursor_y = row_index;
                 self.core.open_folds();
-                self.core.cursor_x = match_index;
-                self.row_offset = match_line.checked_sub(self.screen_rows/2).unwrap_or(0);
-                for cell in self.core.rows[match_line]
+                self.core.cursor_x = col_index;
+                self.row_offset = row_index.checked_sub(self.screen_rows / 2).unwrap_or(0);
+                for cell in self.core.rows[row_index]
                     .cells
                     .iter_mut()
-                    .skip(match_index)
+                    .skip(col_index)
                     .take(query.len())
                 {
                     cell.hl = EditorHighlight::Match

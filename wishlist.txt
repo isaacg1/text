@@ -4,7 +4,6 @@ Cut, Copy, Paste
 Undo (Maybe too ambitious?)
 Multiline comments
 Autointent/Dedent chars
-Search finds multiple matches on same line
 
 Done:
 Refresh file (Ctrl-e)
@@ -20,3 +19,4 @@ On Ctrl-F after Enter, start with old value.
 Multiline strings
 Bug with " at line end
 Toggle paste mode, and indenting (correctness).
+Search finds multiple matches on same line

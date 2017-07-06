@@ -552,23 +552,19 @@ impl EditorCore {
                 }
                     'outer: while index < cells.len() {
                         let prev_is_sep = index == 0 || is_separator(cells[index - 1].chr);
-                        if index == 0 && prev_open_quote.is_some() {
-                            let active_quote = prev_open_quote.expect("Just checked_it");
+                        if index == 0 && prev_open_quote.is_some() || syntax.quotes.contains(cells[index].chr) {
+                            let active_quote = if index == 0 && prev_open_quote.is_some() {
+                                prev_open_quote.expect("Just checked_it")
+                            } else {
+                                let start_quote = cells[index].chr;
+                                update_and_advance!(EditorHighlight::String);
+                                start_quote
+                            };
                             let (new_index, is_open) =
                                 update_highlights_string(cells, active_quote, index);
                             index = new_index;
                             if is_open {
                                 row.open_quote = Some(active_quote);
-                                update_next = true;
-                            }
-                        } else if syntax.quotes.contains(cells[index].chr) {
-                            let start_quote = cells[index].chr;
-                            update_and_advance!(EditorHighlight::String);
-                            let (new_index, is_open) =
-                                update_highlights_string(cells, start_quote, index);
-                            index = new_index;
-                            if is_open {
-                                row.open_quote = Some(start_quote);
                                 update_next = true;
                             }
                         } else if syntax.has_digits && cells[index].chr.is_digit(10) &&

@@ -40,16 +40,6 @@ const STDOUT: c_int = 2;
 const INVERT_COLORS: &'static str = "\x1b[7m";
 const REVERT_COLORS: &'static str = "\x1b[m";
 
-const RED: &'static str = "\x1b[31m\x1b[49m";
-const MAGENTA: &'static str = "\x1b[1m\x1b[35m\x1b[49m";
-const CYAN: &'static str = "\x1b[36m\x1b[49m";
-const YELLOW: &'static str = "\x1b[33m\x1b[49m";
-const BRIGHT_YELLOW: &'static str = "\x1b[1m\x1b[33m\x1b[49m";
-const GREEN: &'static str = "\x1b[32m\x1b[49m";
-const BRIGHT_GREEN: &'static str = "\x1b[1m\x1b[32m\x1b[49m";
-
-const BACK_BLUE: &'static str = "\x1b[39m\x1b[44m";
-
 const CURSOR_TOP_RIGHT: &'static str = "\x1b[H";
 
 const HIDE_CURSOR: &'static str = "\x1b[?25l";
@@ -111,20 +101,18 @@ enum EditorHighlight {
 }
 
 impl EditorHighlight {
-    fn color(&self) -> String {
-        let mut color_string = REVERT_COLORS.to_owned();
-        color_string.push_str(match *self {
-            EditorHighlight::Normal => "",
-            EditorHighlight::Number => RED,
-            EditorHighlight::Match => BACK_BLUE,
-            EditorHighlight::String => MAGENTA,
-            EditorHighlight::Comment => CYAN,
-            EditorHighlight::Keyword1 => YELLOW,
-            EditorHighlight::Keyword2 => GREEN,
-            EditorHighlight::Keyword3 => BRIGHT_GREEN,
-            EditorHighlight::Keyword4 => BRIGHT_YELLOW,
-        });
-        color_string
+    fn apply_to(&self, to_color: ColoredString) -> ColoredString {
+        match *self {
+            EditorHighlight::Normal => to_color,
+            EditorHighlight::Number => to_color.red(),
+            EditorHighlight::Match => to_color.on_blue(),
+            EditorHighlight::String => to_color.magenta(),
+            EditorHighlight::Comment => to_color.cyan(),
+            EditorHighlight::Keyword1 => to_color.yellow(),
+            EditorHighlight::Keyword2 => to_color.green(),
+            EditorHighlight::Keyword3 => to_color.green().bold(),
+            EditorHighlight::Keyword4 => to_color.yellow().bold(),
+        }
     }
     const KEYWORDS: [Self; 4] = [
         EditorHighlight::Keyword1,
@@ -1048,43 +1036,38 @@ where
                 let mut fold_white_str = row_to_string(&fold_white_visible).replace("\t", tab);
                 let fold_msg = format!("{} lines folded.", fold_end - file_row + 1);
                 fold_white_str.truncate(self.screen_cols.saturating_sub(fold_msg.len()));
-                let remaining_width = self.screen_cols
-                    .saturating_sub(fold_white_str.len());
-                let padded_fold_msg =
-                    format!("{:width$}", fold_msg, width = remaining_width);
-                write!(output_buffer, "{}{}",fold_white_str, padded_fold_msg.reverse())?;
+                let remaining_width = self.screen_cols.saturating_sub(fold_white_str.len());
+                let padded_fold_msg = format!("{:width$}", fold_msg, width = remaining_width);
+                write!(
+                    output_buffer,
+                    "{}{}",
+                    fold_white_str,
+                    padded_fold_msg.reversed()
+                )?;
                 file_row = fold_end + 1;
             } else if file_row < self.core.rows.len() {
                 let current_cells = &self.core.rows[file_row].cells;
                 if self.col_offset < current_cells.len() {
-                    let mut current_hl = EditorHighlight::Normal;
                     let mut chars_written = 0;
                     for &Cell { chr, hl } in current_cells.iter().skip(self.col_offset) {
-                        if hl != current_hl {
-                            current_hl = hl;
-                            write!(output_buffer, "{}", hl.color())?;
-                        }
                         chars_written += if chr == '\t' { TAB_STOP } else { 1 };
                         if chars_written > self.screen_cols {
                             break;
                         }
-                        if chr == '\t' {
-                            write!(output_buffer, "{}", tab)?;
+                        let to_write = if chr == '\t' {
+                            tab.normal()
                         } else if chr.is_control() {
-                            write!(output_buffer, "{}", INVERT_COLORS)?;
-                            let sym = if chr.is_ascii() && chr as u8 <= 26 {
+                            if chr.is_ascii() && chr as u8 <= 26 {
                                 (64 + (chr as u8)) as char
                             } else {
                                 '?'
-                            };
-                            write!(output_buffer, "{}", sym)?;
-                            write!(output_buffer, "{}", REVERT_COLORS)?;
-                            write!(output_buffer, "{}", hl.color())?;
+                            }.to_string()
+                                .reversed()
                         } else {
-                            write!(output_buffer, "{}", chr)?;
-                        }
+                            chr.to_string().normal()
+                        };
+                        write!(output_buffer, "{}", hl.apply_to(to_write))?;
                     }
-                    write!(output_buffer, "{}", REVERT_COLORS)?;
                 }
                 file_row += 1;
             } else if self.core.rows.is_empty() && screen_y == self.screen_rows / 3 {

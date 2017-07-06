@@ -6,4 +6,4 @@ authors = ["Isaac Grosof <isaacg@mit.edu>"]
 [dependencies]
 termios = "^0.2"
 libc = "^0.2.21"
-colored = "^1.5"
+colored = "^1.5.2"

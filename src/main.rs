@@ -30,7 +30,7 @@ use termios::Termios;
 
 /// * utility **
 
-const IED_VERSION: &'static str = "0.2.0";
+const IED_VERSION: &'static str = "0.3.0";
 
 const TAB_STOP: usize = 4;
 

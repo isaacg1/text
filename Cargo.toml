@@ -1,7 +1,7 @@
 [package]
 name = "text"
-version = "0.2.0"
-authors = ["Isaac Grosof <isaacg@mit.edu>"]
+version = "0.3.0"
+authors = ["Isaac Grosof <isaacbg227@gmail.com>"]
 
 [dependencies]
 termios = "^0.2"

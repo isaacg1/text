@@ -4,5 +4,6 @@ version = "0.2.0"
 authors = ["Isaac Grosof <isaacg@mit.edu>"]
 
 [dependencies]
-termios = "0.2"
-libc = "0.2.21"
+termios = "^0.2"
+libc = "^0.2.21"
+colored = "^1.5"

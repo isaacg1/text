@@ -4,6 +4,9 @@
 #![feature(associated_consts)]
 extern crate termios;
 extern crate libc;
+extern crate colored;
+
+use colored::*;
 
 use std::io::{self, Read, Write, BufWriter};
 use std::fs::File;
@@ -265,9 +268,10 @@ impl EditorSyntax {
             },
         ];
         syntax_database.into_iter().find(|entry| {
-            entry.extensions.iter().any(|extension| {
-                filename.ends_with(extension)
-            })
+            entry
+                .extensions
+                .iter()
+                .any(|extension| filename.ends_with(extension))
         })
     }
 }
@@ -369,9 +373,9 @@ fn read_key(input_source: &mut Read) -> EditorKey {
     let c = buffer[0] as char;
     if c == '\x1b' {
         let mut escape_buf: [u8; 3] = [0; 3];
-        match input_source.read(&mut escape_buf).expect(
-            "Read failure during escape sequence",
-        ) {
+        match input_source
+            .read(&mut escape_buf)
+            .expect("Read failure during escape sequence") {
             2 | 3 => {
                 if escape_buf[0] as char == '[' {
                     if escape_buf[2] as char == '~' {
@@ -443,16 +447,15 @@ impl EditorCore {
                 }
             }
         }
-        cursor_position_failure.or(fold_failure).or(
-            fold_fold_failure,
-        )
+        cursor_position_failure
+            .or(fold_failure)
+            .or(fold_fold_failure)
     }
 
     fn current_row_len(&self) -> usize {
-        self.rows.get(self.cursor_y).map_or(
-            0,
-            |row| row.cells.len(),
-        )
+        self.rows
+            .get(self.cursor_y)
+            .map_or(0, |row| row.cells.len())
     }
     fn toggle_fold(&mut self) {
         if self.folds.contains_key(&self.cursor_y) {
@@ -498,12 +501,12 @@ impl EditorCore {
     fn open_folds(&mut self) {
         let to_remove: Vec<_> = self.folds
             .iter()
-            .filter_map(|(&start, &(end, _depth))| if start <= self.cursor_y &&
-                self.cursor_y <= end
-            {
-                Some(start)
-            } else {
-                None
+            .filter_map(|(&start, &(end, _depth))| {
+                if start <= self.cursor_y && self.cursor_y <= end {
+                    Some(start)
+                } else {
+                    None
+                }
             })
             .collect();
         for start in to_remove {
@@ -521,9 +524,9 @@ impl EditorCore {
     fn one_row_back(&self, index: usize) -> usize {
         let prev_index = index.saturating_sub(1);
         if let Some((&start, _end_and_depth)) =
-            self.folds.iter().find(|&(_start, &(end, _depth))| {
-                end == prev_index
-            })
+            self.folds
+                .iter()
+                .find(|&(_start, &(end, _depth))| end == prev_index)
         {
             start
         } else {
@@ -588,9 +591,8 @@ impl EditorCore {
                             while index < cells.len() && cells[index].chr.is_digit(10) {
                                 update_and_advance!(EditorHighlight::Number);
                             }
-                        } else if cells_to_string(&cells[index..]).starts_with(
-                            &syntax.singleline_comment,
-                        )
+                        } else if cells_to_string(&cells[index..])
+                                   .starts_with(&syntax.singleline_comment)
                         {
                             while index < cells.len() {
                                 update_and_advance!(EditorHighlight::Comment);
@@ -752,9 +754,9 @@ impl EditorCore {
             self.modified = true;
             Ok(())
         } else if 0 < self.cursor_y && self.cursor_y < self.rows.len() {
-            if self.folds.values().any(
-                |&(end, _)| end == self.cursor_y - 1,
-            )
+            if self.folds
+                .values()
+                .any(|&(end, _)| end == self.cursor_y - 1)
             {
                 Err(DONT_EDIT_FOLDS.to_owned())
             } else {
@@ -853,9 +855,7 @@ where
     }
 
     fn warn_consistency(&mut self) {
-        let failure = {
-            self.core.check_consistency()
-        };
+        let failure = { self.core.check_consistency() };
         if let Some(message) = failure {
             self.set_status_message(message);
         }
@@ -867,9 +867,9 @@ where
 
 
     fn activate_syntax(&mut self) {
-        self.core.syntax = self.filename.as_ref().and_then(|filename| {
-            EditorSyntax::for_filename(filename)
-        });
+        self.core.syntax = self.filename
+            .as_ref()
+            .and_then(|filename| EditorSyntax::for_filename(filename));
         for index in 0..self.core.rows.len() {
             self.core.update_row_highlights(index);
         }
@@ -877,9 +877,9 @@ where
 
     /// * file i/o **
     fn open(&mut self) -> io::Result<()> {
-        let filename = self.filename.clone().expect(
-            "To open, filename must be set.",
-        );
+        let filename = self.filename
+            .clone()
+            .expect("To open, filename must be set.");
         self.activate_syntax();
 
         if !Path::new(&filename).exists() {
@@ -1048,14 +1048,11 @@ where
                 let mut fold_white_str = row_to_string(&fold_white_visible).replace("\t", tab);
                 let fold_msg = format!("{} lines folded.", fold_end - file_row + 1);
                 fold_white_str.truncate(self.screen_cols.saturating_sub(fold_msg.len()));
-                write!(output_buffer, "{}", fold_white_str)?;
-                write!(output_buffer, "{}", INVERT_COLORS)?;
-                write!(output_buffer, "{}", fold_msg)?;
-                let padding = self.screen_cols.saturating_sub(
-                    fold_msg.len() + fold_white_str.len(),
-                );
-                write!(output_buffer, "{:width$}", "", width = padding)?;
-                write!(output_buffer, "{}", REVERT_COLORS)?;
+                let remaining_width = self.screen_cols
+                    .saturating_sub(fold_white_str.len());
+                let padded_fold_msg =
+                    format!("{:width$}", fold_msg, width = remaining_width);
+                write!(output_buffer, "{}{}",fold_white_str, padded_fold_msg.reverse())?;
                 file_row = fold_end + 1;
             } else if file_row < self.core.rows.len() {
                 let current_cells = &self.core.rows[file_row].cells;
@@ -1092,7 +1089,7 @@ where
                 file_row += 1;
             } else if self.core.rows.is_empty() && screen_y == self.screen_rows / 3 {
                 let welcome = format!("Isaac's editor -- version {}", IED_VERSION);
-                let padding = self.screen_cols.saturating_sub(welcome.len()+1);
+                let padding = self.screen_cols.saturating_sub(welcome.len() + 1);
                 write!(output_buffer, "~{:^width$}", welcome, width = padding)?;
                 file_row += 1;
             } else {
@@ -1108,9 +1105,9 @@ where
 
     fn draw_status_bar<W: Write>(&self, output_buffer: &mut W) -> io::Result<()> {
         write!(output_buffer, "{}", INVERT_COLORS)?;
-        let mut name = self.filename.clone().unwrap_or_else(
-            || "[No Name]".to_string(),
-        );
+        let mut name = self.filename
+            .clone()
+            .unwrap_or_else(|| "[No Name]".to_string());
         name.truncate(20);
         let dirty = if self.core.modified { "(modified)" } else { "" };
         let paste = if self.paste_mode { "(paste)" } else { "" };
@@ -1127,14 +1124,19 @@ where
             self.core.cursor_y + 1,
             self.core.rows.len(),
             self.core.cursor_x + 1,
-            self.core.rows.get(self.core.cursor_y).map_or(
-                0,
-                |row| row.cells.len(),
-            )
+            self.core
+                .rows
+                .get(self.core.cursor_y,)
+                .map_or(0, |row| row.cells.len(),)
         );
         right_status.truncate(self.screen_cols.saturating_sub(status.len() + 1));
         let room_remaining = self.screen_cols - status.len();
-        write!(output_buffer, "{:>width$}", right_status, width = room_remaining)?;
+        write!(
+            output_buffer,
+            "{:>width$}",
+            right_status,
+            width = room_remaining
+        )?;
         write!(output_buffer, "{}", REVERT_COLORS)?;
         write!(output_buffer, "\r\n")?;
         Ok(())
@@ -1160,7 +1162,12 @@ where
         self.draw_status_bar(&mut output_buffer)?;
         self.draw_message_bar(&mut output_buffer)?;
 
-        write!(output_buffer, "\x1b[{};{}H", self.screen_y() + 1, self.screen_x() + 1)?;
+        write!(
+            output_buffer,
+            "\x1b[{};{}H",
+            self.screen_y() + 1,
+            self.screen_x() + 1
+        )?;
         write!(output_buffer, "{}", SHOW_CURSOR)?;
         output_buffer.flush()?;
         Ok(())
@@ -1182,7 +1189,8 @@ where
         let mut response: String = initial_response.to_owned();
         loop {
             self.set_status_message(&format!("{}{}", prompt, response));
-            self.refresh_screen().expect("Screen should refresh successfully");
+            self.refresh_screen()
+                .expect("Screen should refresh successfully");
 
             let c = read_key(&mut self.input_source);
             macro_rules! maybe_callback {
@@ -1299,8 +1307,8 @@ where
                 let quit_times = self.quit_times;
                 self.set_status_message(&format!(
                     "Warning: File has unsaved changes. \
-                    Ctrl-S to save, or press Ctrl-Q \
-                    {} more times to quit.",
+                     Ctrl-S to save, or press Ctrl-Q \
+                     {} more times to quit.",
                     quit_times
                 ));
                 self.quit_times -= 1;
@@ -1319,8 +1327,8 @@ where
                     if self.core.modified {
                         self.set_status_message(
                             "File has unsaved changed, and \
-                            cannot be refreshed. Quit and \
-                            reopen to discard changes.",
+                             cannot be refreshed. Quit and \
+                             reopen to discard changes.",
                         );
                     } else if self.filename.is_some() {
                         self.open().expect("Refreshing file failed")
@@ -1386,11 +1394,13 @@ fn run() {
     }
     editor_config.set_status_message(
         "Help: C-s save, C-q quit, C-f find, \
-        C-' ' fold, C-e refresh, C-k del row, C-g go to, C-p paste mode.",
+         C-' ' fold, C-e refresh, C-k del row, C-g go to, C-p paste mode.",
     );
     loop {
         editor_config.warn_consistency();
-        editor_config.refresh_screen().expect("Screen should refresh successfully");
+        editor_config
+            .refresh_screen()
+            .expect("Screen should refresh successfully");
         let keypress = read_key(&mut editor_config.input_source);
         let to_continue = editor_config.process_keypress(keypress);
         if !to_continue {
@@ -1464,7 +1474,9 @@ mod tests {
         fn new(contents: &[u8]) -> FakeStdin {
             let mut contents = contents.to_owned();
             contents.reverse();
-            FakeStdin { backward_contents: contents }
+            FakeStdin {
+                backward_contents: contents,
+            }
         }
     }
 
@@ -1572,36 +1584,57 @@ mod tests {
         mock.core.load_text(text);
 
         assert_eq!(mock.core.rows.len(), 4);
-        assert!(mock.core.rows[0].cells[..2].iter().all(|cell| {
-            cell.hl == EditorHighlight::Keyword1
-        }));
-        assert!(mock.core.rows[0].cells[2..].iter().all(|cell| {
-            cell.hl == EditorHighlight::Normal
-        }));
-        assert!(mock.core.rows[1].cells[..13].iter().all(|cell| {
-            cell.hl == EditorHighlight::Normal
-        }));
-        assert!(mock.core.rows[1].cells[13..30].iter().all(|cell| {
-            cell.hl == EditorHighlight::String
-        }));
-        assert!(mock.core.rows[1].cells[30..].iter().all(|cell| {
-            cell.hl == EditorHighlight::Normal
-        }));
-        assert!(mock.core.rows[2].cells[..4].iter().all(|cell| {
-            cell.hl == EditorHighlight::Normal
-        }));
-        assert!(mock.core.rows[2].cells[4..7].iter().all(|cell| {
-            cell.hl == EditorHighlight::Number
-        }));
-        assert!(mock.core.rows[2].cells[7..8].iter().all(|cell| {
-            cell.hl == EditorHighlight::Normal
-        }));
-        assert!(mock.core.rows[2].cells[8..].iter().all(|cell| {
-            cell.hl == EditorHighlight::Comment
-        }));
-        assert!(mock.core.rows[3].cells.iter().all(|cell| {
-            cell.hl == EditorHighlight::Normal
-        }));
+        assert!(
+            mock.core.rows[0].cells[..2]
+                .iter()
+                .all(|cell| { cell.hl == EditorHighlight::Keyword1 })
+        );
+        assert!(
+            mock.core.rows[0].cells[2..]
+                .iter()
+                .all(|cell| { cell.hl == EditorHighlight::Normal })
+        );
+        assert!(
+            mock.core.rows[1].cells[..13]
+                .iter()
+                .all(|cell| { cell.hl == EditorHighlight::Normal })
+        );
+        assert!(
+            mock.core.rows[1].cells[13..30]
+                .iter()
+                .all(|cell| { cell.hl == EditorHighlight::String })
+        );
+        assert!(
+            mock.core.rows[1].cells[30..]
+                .iter()
+                .all(|cell| { cell.hl == EditorHighlight::Normal })
+        );
+        assert!(
+            mock.core.rows[2].cells[..4]
+                .iter()
+                .all(|cell| { cell.hl == EditorHighlight::Normal })
+        );
+        assert!(
+            mock.core.rows[2].cells[4..7]
+                .iter()
+                .all(|cell| { cell.hl == EditorHighlight::Number })
+        );
+        assert!(
+            mock.core.rows[2].cells[7..8]
+                .iter()
+                .all(|cell| { cell.hl == EditorHighlight::Normal })
+        );
+        assert!(
+            mock.core.rows[2].cells[8..]
+                .iter()
+                .all(|cell| { cell.hl == EditorHighlight::Comment })
+        );
+        assert!(
+            mock.core.rows[3]
+                .cells
+                .iter()
+                .all(|cell| { cell.hl == EditorHighlight::Normal })
+        );
     }
 
     #[test]
@@ -1617,21 +1650,32 @@ mod tests {
         mock.core.load_text(text);
 
         assert_eq!(mock.core.rows.len(), 3);
-        assert!(mock.core.rows[0].cells[..8].iter().all(|cell| {
-            cell.hl == EditorHighlight::Normal
-        }));
-        assert!(mock.core.rows[0].cells[8..].iter().all(|cell| {
-            cell.hl == EditorHighlight::String
-        }));
-        assert!(mock.core.rows[1].cells.iter().all(|cell| {
-            cell.hl == EditorHighlight::String
-        }));
-        assert!(mock.core.rows[2].cells[..8].iter().all(|cell| {
-            cell.hl == EditorHighlight::String
-        }));
-        assert!(mock.core.rows[2].cells[8..].iter().all(|cell| {
-            cell.hl == EditorHighlight::Normal
-        }));
+        assert!(
+            mock.core.rows[0].cells[..8]
+                .iter()
+                .all(|cell| { cell.hl == EditorHighlight::Normal })
+        );
+        assert!(
+            mock.core.rows[0].cells[8..]
+                .iter()
+                .all(|cell| { cell.hl == EditorHighlight::String })
+        );
+        assert!(
+            mock.core.rows[1]
+                .cells
+                .iter()
+                .all(|cell| { cell.hl == EditorHighlight::String })
+        );
+        assert!(
+            mock.core.rows[2].cells[..8]
+                .iter()
+                .all(|cell| { cell.hl == EditorHighlight::String })
+        );
+        assert!(
+            mock.core.rows[2].cells[8..]
+                .iter()
+                .all(|cell| { cell.hl == EditorHighlight::Normal })
+        );
     }
 
     #[test]
@@ -1802,9 +1846,13 @@ mod tests {
         assert_eq!(2, mock.core.cursor_x);
 
         // Highlighting should have been cleared.
-        assert!(mock.core.rows.iter().flat_map(|row| row.cells.iter()).all(
-            |cell| cell.hl == EditorHighlight::Normal,
-        ));
+        assert!(
+            mock.core
+                .rows
+                .iter()
+                .flat_map(|row| row.cells.iter(),)
+                .all(|cell| cell.hl == EditorHighlight::Normal,)
+        );
     }
 
     #[test]

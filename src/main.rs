@@ -37,9 +37,6 @@ const TAB_STOP: usize = 4;
 const STDIN: c_int = 1;
 const STDOUT: c_int = 2;
 
-const INVERT_COLORS: &'static str = "\x1b[7m";
-const REVERT_COLORS: &'static str = "\x1b[m";
-
 const CURSOR_TOP_RIGHT: &'static str = "\x1b[H";
 
 const HIDE_CURSOR: &'static str = "\x1b[?25l";
@@ -57,7 +54,7 @@ struct Row {
     open_quote: Option<char>,
 }
 
-struct EditorConfig<T: Read> {
+struct EditorConfig<T: Read, W: Write> {
     core: EditorCore,
     screen_rows: usize,
     screen_cols: usize,
@@ -68,6 +65,7 @@ struct EditorConfig<T: Read> {
     status_message_time: Instant,
     quit_times: usize,
     input_source: T,
+    output_buffer: W,
     saved_search: String,
     paste_mode: bool,
 }
@@ -106,7 +104,7 @@ impl EditorHighlight {
             EditorHighlight::Normal => to_color,
             EditorHighlight::Number => to_color.red(),
             EditorHighlight::Match => to_color.on_blue(),
-            EditorHighlight::String => to_color.magenta(),
+            EditorHighlight::String => to_color.magenta().bold(),
             EditorHighlight::Comment => to_color.cyan(),
             EditorHighlight::Keyword1 => to_color.yellow(),
             EditorHighlight::Keyword2 => to_color.green(),
@@ -800,11 +798,12 @@ impl EditorCore {
 }
 
 
-impl<T> EditorConfig<T>
+impl<T, W> EditorConfig<T, W>
 where
     T: Read,
+    W: Write,
 {
-    fn new() -> EditorConfig<io::Stdin> {
+    fn new() -> EditorConfig<io::Stdin, io::BufWriter<io::Stdout>> {
         let mut ws = libc::winsize {
             ws_row: 0,
             ws_col: 0,
@@ -836,6 +835,7 @@ where
                 status_message_time: Instant::now(),
                 quit_times: 3,
                 input_source: io::stdin(),
+                output_buffer: BufWriter::new(io::stdout()),
                 saved_search: String::new(),
                 paste_mode: false,
             }
@@ -932,7 +932,7 @@ where
             });
             let best_match = if key == EditorKey::ArrowRight || key == EditorKey::ArrowDown {
                 // Skip the match at the current location
-                matches.get(1)
+                matches.get(1).or_else(|| matches.get(0))
             } else if key == EditorKey::ArrowLeft || key == EditorKey::ArrowUp {
                 matches.last()
             } else {
@@ -1013,7 +1013,8 @@ where
         }
     }
 
-    fn draw_rows<W: Write>(&self, output_buffer: &mut W) -> io::Result<()> {
+    fn draw_rows(&mut self) -> io::Result<()> {
+        let mut output_buffer = &mut self.output_buffer;
         let tab = &" ".repeat(TAB_STOP);
         let mut screen_y = 0;
         let mut file_row = self.row_offset;
@@ -1072,22 +1073,25 @@ where
                 file_row += 1;
             } else if self.core.rows.is_empty() && screen_y == self.screen_rows / 3 {
                 let welcome = format!("Isaac's editor -- version {}", IED_VERSION);
-                let padding = self.screen_cols.saturating_sub(welcome.len() + 1);
-                write!(output_buffer, "~{:^width$}", welcome, width = padding)?;
+                write!(
+                    output_buffer,
+                    "~{:^width$}",
+                    welcome,
+                    width = self.screen_cols.saturating_sub(1)
+                )?;
                 file_row += 1;
             } else {
                 write!(output_buffer, "~")?;
                 file_row += 1;
             };
-            write!(output_buffer, "{}", CLEAR_RIGHT)?;
-            write!(output_buffer, "\r\n")?;
+            write!(output_buffer, "{}\r\n", CLEAR_RIGHT)?;
             screen_y += 1;
         }
         Ok(())
     }
 
-    fn draw_status_bar<W: Write>(&self, output_buffer: &mut W) -> io::Result<()> {
-        write!(output_buffer, "{}", INVERT_COLORS)?;
+    fn draw_status_bar(&mut self) -> io::Result<()> {
+        let mut output_buffer = &mut self.output_buffer;
         let mut name = self.filename
             .clone()
             .unwrap_or_else(|| "[No Name]".to_string());
@@ -1096,7 +1100,7 @@ where
         let paste = if self.paste_mode { "(paste)" } else { "" };
         let mut status = format!("{} {} {}", name, dirty, paste);
         status.truncate(self.screen_cols);
-        write!(output_buffer, "{}", status)?;
+
         let filetype = match self.core.syntax {
             None => "no ft",
             Some(ref syntax) => syntax.filetype,
@@ -1114,18 +1118,13 @@ where
         );
         right_status.truncate(self.screen_cols.saturating_sub(status.len() + 1));
         let room_remaining = self.screen_cols - status.len();
-        write!(
-            output_buffer,
-            "{:>width$}",
-            right_status,
-            width = room_remaining
-        )?;
-        write!(output_buffer, "{}", REVERT_COLORS)?;
-        write!(output_buffer, "\r\n")?;
+        let to_write = format!("{}{:>width$}", status, right_status, width = room_remaining);
+        write!(output_buffer, "{}\r\n", to_write.reversed())?;
         Ok(())
     }
 
-    fn draw_message_bar<W: Write>(&self, output_buffer: &mut W) -> io::Result<()> {
+    fn draw_message_bar(&mut self) -> io::Result<()> {
+        let mut output_buffer = &mut self.output_buffer;
         write!(output_buffer, "{}", CLEAR_RIGHT)?;
         if self.status_message_time.elapsed().as_secs() < 5 {
             let mut message = self.status_message.clone();
@@ -1137,22 +1136,18 @@ where
 
     fn refresh_screen(&mut self) -> io::Result<()> {
         self.scroll();
-        let mut output_buffer = BufWriter::new(io::stdout());
-        write!(output_buffer, "{}", HIDE_CURSOR)?;
-        write!(output_buffer, "{}", CURSOR_TOP_RIGHT)?;
+        write!(self.output_buffer, "{}", HIDE_CURSOR)?;
+        write!(self.output_buffer, "{}", CURSOR_TOP_RIGHT)?;
 
-        self.draw_rows(&mut output_buffer)?;
-        self.draw_status_bar(&mut output_buffer)?;
-        self.draw_message_bar(&mut output_buffer)?;
+        self.draw_rows()?;
+        self.draw_status_bar()?;
+        self.draw_message_bar()?;
 
-        write!(
-            output_buffer,
-            "\x1b[{};{}H",
-            self.screen_y() + 1,
-            self.screen_x() + 1
-        )?;
-        write!(output_buffer, "{}", SHOW_CURSOR)?;
-        output_buffer.flush()?;
+        let y_index = self.screen_y() + 1;
+        let x_index = self.screen_x() + 1;
+        write!(self.output_buffer, "\x1b[{};{}H", y_index, x_index)?;
+        write!(self.output_buffer, "{}", SHOW_CURSOR)?;
+        self.output_buffer.flush()?;
         Ok(())
     }
 
@@ -1167,7 +1162,7 @@ where
         &mut self,
         prompt: &str,
         initial_response: &str,
-        callback: Option<&Fn(&mut EditorConfig<T>, &str, EditorKey) -> ()>,
+        callback: Option<&Fn(&mut EditorConfig<T, W>, &str, EditorKey) -> ()>,
     ) -> Option<String> {
         let mut response: String = initial_response.to_owned();
         loop {
@@ -1369,7 +1364,8 @@ where
 /// * init **
 
 fn run() {
-    let mut editor_config: EditorConfig<io::Stdin> = EditorConfig::<io::Stdin>::new();
+    let mut editor_config: EditorConfig<io::Stdin, io::BufWriter<io::Stdout>> =
+        EditorConfig::<io::Stdin, io::BufWriter<io::Stdout>>::new();
     print!("{}", CLEAR_SCREEN);
     if let Some(filename) = env::args().nth(1) {
         editor_config.filename = Some(filename);
@@ -1410,7 +1406,7 @@ fn main() {
 mod tests {
     use super::*;
 
-    fn mock_editor(input: Option<&str>) -> EditorConfig<Box<Read>> {
+    fn mock_editor(input: Option<&str>) -> EditorConfig<Box<Read>, io::Sink> {
         EditorConfig {
             core: EditorCore {
                 rows: vec![],
@@ -1432,6 +1428,7 @@ mod tests {
             input_source: input.map_or(Box::new(io::empty()), |text| {
                 Box::new(FakeStdin::new(text.as_bytes()))
             }),
+            output_buffer: io::sink(),
             saved_search: String::new(),
             paste_mode: false,
         }
@@ -1721,7 +1718,7 @@ mod tests {
         assert_eq!(mock.core.cursor_x, 1);
         mock.process_keypress(EditorKey::Delete);
         assert_eq!(mock.core.rows.len(), 2);
-        mock.refresh_screen();
+        mock.refresh_screen().unwrap();
     }
 
     #[test]
@@ -1735,7 +1732,7 @@ mod tests {
         mock.process_keypress(EditorKey::Verbatim(ctrl_key(' ')));
         mock.process_keypress(EditorKey::ArrowUp);
         mock.process_keypress(EditorKey::Verbatim(ctrl_key('k')));
-        mock.refresh_screen();
+        mock.refresh_screen().unwrap();
         assert_eq!(" b", mock.core.all_text());
     }
 
@@ -1747,7 +1744,7 @@ mod tests {
 
         mock.process_keypress(EditorKey::ArrowDown);
         mock.process_keypress(EditorKey::Verbatim(ctrl_key(' ')));
-        mock.refresh_screen();
+        mock.refresh_screen().unwrap();
     }
 
     #[test]
@@ -1835,6 +1832,42 @@ mod tests {
                 .iter()
                 .flat_map(|row| row.cells.iter(),)
                 .all(|cell| cell.hl == EditorHighlight::Normal,)
+        );
+    }
+
+    #[test]
+    fn find_one_highlight() {
+        let text = "This text contains burble once.";
+
+        let keys = "\x06burble\r";
+
+        let mut mock = mock_editor(Some(keys));
+
+        // Search for "burble"
+        mock.core.load_text(text);
+        let keypress = read_key(&mut mock.input_source);
+        mock.process_keypress(keypress);
+
+        assert_eq!(0, mock.core.cursor_y);
+        assert_eq!(19, mock.core.cursor_x);
+
+        let saved = &mock.saved_search.clone();
+        mock.find_callback(saved, EditorKey::ArrowDown);
+
+        assert!(
+            mock.core.rows[0].cells[..19]
+                .iter()
+                .all(|cell| cell.hl == EditorHighlight::Normal)
+        );
+        assert!(
+            mock.core.rows[0].cells[19..25]
+                .iter()
+                .all(|cell| cell.hl == EditorHighlight::Match)
+        );
+        assert!(
+            mock.core.rows[0].cells[25..]
+                .iter()
+                .all(|cell| cell.hl == EditorHighlight::Normal)
         );
     }
 

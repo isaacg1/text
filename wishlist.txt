@@ -4,7 +4,6 @@ Cut, Copy, Paste
 Undo (Maybe too ambitious?)
 Multiline comments
 Autointent/Dedent chars
-Make Down on one match highlight again, write test
 Ctrl-k at end of line should delete next line
 
 Done:
@@ -22,3 +21,4 @@ Multiline strings
 Bug with " at line end
 Toggle paste mode, and indenting (correctness).
 Search finds multiple matches on same line
+Make Down on one match highlight again, write test

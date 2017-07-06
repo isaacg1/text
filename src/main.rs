@@ -829,64 +829,6 @@ impl EditorCore {
             .join("\n")
     }
 
-    fn find_callback(&mut self, query: &str, key: EditorKey) {
-        if self.cursor_y < self.rows.len() {
-            let index = self.cursor_y;
-            self.update_row_highlights(index)
-        }
-        if key != EditorKey::Verbatim('\r') && key != EditorKey::Verbatim('\x1b') {
-            let match_line = {
-                let find_predicate = &|row: &Row| row_to_string(row).contains(query);
-                if key == EditorKey::ArrowRight || key == EditorKey::ArrowDown {
-                    let potential_match = if self.cursor_y + 1 < self.rows.len() {
-                        self
-                            .rows
-                            .iter()
-                            .skip(self.cursor_y + 1)
-                            .position(find_predicate)
-                            .map(|offset| offset + self.cursor_y + 1)
-                    } else {
-                        None
-                    };
-                    potential_match.or_else(|| self.rows.iter().position(find_predicate))
-                } else if key == EditorKey::ArrowLeft || key == EditorKey::ArrowUp {
-                    let potential_match = self.rows[..self.cursor_y].iter().rposition(
-                        find_predicate,
-                    );
-                    potential_match.or_else(|| self.rows.iter().rposition(find_predicate))
-                } else {
-                    let potential_match = if self.cursor_y < self.rows.len() {
-                        self
-                            .rows
-                            .iter()
-                            .skip(self.cursor_y)
-                            .position(find_predicate)
-                            .map(|offset| offset + self.cursor_y)
-                    } else {
-                        None
-                    };
-                    potential_match.or_else(|| self.rows.iter().position(find_predicate))
-                }
-            };
-            if let Some(match_line) = match_line {
-                let match_index = row_to_string(&self.rows[match_line])
-                    .find(query)
-                    .expect("We just checked the row contained the string");
-                self.cursor_y = match_line;
-                self.open_folds();
-                self.cursor_x = match_index;
-                //self.row_offset = self.rows.len();
-                for cell in self.rows[match_line]
-                    .cells
-                    .iter_mut()
-                    .skip(match_index)
-                    .take(query.len())
-                {
-                    cell.hl = EditorHighlight::Match
-                }
-            }
-        }
-    }
 }
 
 
@@ -997,6 +939,64 @@ where
 
     /// * macro movement **
 
+    fn find_callback(&mut self, query: &str, key: EditorKey) {
+        if self.core.cursor_y < self.core.rows.len() {
+            let index = self.core.cursor_y;
+            self.core.update_row_highlights(index)
+        }
+        if key != EditorKey::Verbatim('\r') && key != EditorKey::Verbatim('\x1b') {
+            let match_line = {
+                let find_predicate = &|row: &Row| row_to_string(row).contains(query);
+                if key == EditorKey::ArrowRight || key == EditorKey::ArrowDown {
+                    let potential_match = if self.core.cursor_y + 1 < self.core.rows.len() {
+                        self.core
+                            .rows
+                            .iter()
+                            .skip(self.core.cursor_y + 1)
+                            .position(find_predicate)
+                            .map(|offset| offset + self.core.cursor_y + 1)
+                    } else {
+                        None
+                    };
+                    potential_match.or_else(|| self.core.rows.iter().position(find_predicate))
+                } else if key == EditorKey::ArrowLeft || key == EditorKey::ArrowUp {
+                    let potential_match = self.core.rows[..self.core.cursor_y].iter().rposition(
+                        find_predicate,
+                    );
+                    potential_match.or_else(|| self.core.rows.iter().rposition(find_predicate))
+                } else {
+                    let potential_match = if self.core.cursor_y < self.core.rows.len() {
+                        self.core
+                            .rows
+                            .iter()
+                            .skip(self.core.cursor_y)
+                            .position(find_predicate)
+                            .map(|offset| offset + self.core.cursor_y)
+                    } else {
+                        None
+                    };
+                    potential_match.or_else(|| self.core.rows.iter().position(find_predicate))
+                }
+            };
+            if let Some(match_line) = match_line {
+                let match_index = row_to_string(&self.core.rows[match_line])
+                    .find(query)
+                    .expect("We just checked the row contained the string");
+                self.core.cursor_y = match_line;
+                self.core.open_folds();
+                self.core.cursor_x = match_index;
+                self.row_offset = match_line.checked_sub(self.screen_rows/2).unwrap_or(0);
+                for cell in self.core.rows[match_line]
+                    .cells
+                    .iter_mut()
+                    .skip(match_index)
+                    .take(query.len())
+                {
+                    cell.hl = EditorHighlight::Match
+                }
+            }
+        }
+    }
 
     fn find(&mut self) {
         let saved_cursor_x = self.core.cursor_x;
@@ -1010,7 +1010,7 @@ where
         let query = self.prompt(
             "Search (ESC/Arrows/Enter): ",
             &search_start,
-            Some(&|ed, query, key| ed.core.find_callback(query, key)),
+            Some(&|ed, query, key| ed.find_callback(query, key)),
         );
 
         match query {

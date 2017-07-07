@@ -674,10 +674,16 @@ impl EditorCore {
         self.modified = true;
     }
     fn insert_newline(&mut self, paste_mode: bool) {
-        let open_quote = if let Some(prev_y) = self.cursor_y.checked_sub(1) {
-            self.rows[prev_y].open_quote
-        } else {
-            None
+        let blank_row = {
+            let open_quote = if let Some(prev_y) = self.cursor_y.checked_sub(1) {
+                self.rows[prev_y].open_quote
+            } else {
+                None
+            };
+            Row {
+                cells: vec![],
+                open_quote: open_quote,
+            }
         };
 
         if self.cursor_y < self.rows.len() {
@@ -688,13 +694,7 @@ impl EditorCore {
             };
             // If in the whitespace, insert blank line.
             if depth >= self.cursor_x {
-                self.rows.insert(
-                    self.cursor_y,
-                    Row {
-                        cells: vec![],
-                        open_quote: open_quote,
-                    },
-                );
+                self.rows.insert(self.cursor_y, blank_row);
             } else {
                 let cells_end = self.rows[self.cursor_y].cells.split_off(self.cursor_x);
                 let mut next_row_cells = self.rows[self.cursor_y].cells[..depth].to_vec();
@@ -716,10 +716,7 @@ impl EditorCore {
 
             self.cursor_x = depth;
         } else {
-            self.rows.push(Row {
-                cells: vec![],
-                open_quote: open_quote,
-            })
+            self.rows.push(blank_row)
         }
         self.cursor_y += 1;
         self.modified = true;

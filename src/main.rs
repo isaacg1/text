@@ -675,14 +675,9 @@ impl EditorCore {
     }
     fn insert_newline(&mut self, paste_mode: bool) {
         let blank_row = {
-            let open_quote = if let Some(prev_y) = self.cursor_y.checked_sub(1) {
-                self.rows[prev_y].open_quote
-            } else {
-                None
-            };
             Row {
                 cells: vec![],
-                open_quote: open_quote,
+                open_quote: None,
             }
         };
 
@@ -710,14 +705,13 @@ impl EditorCore {
                     self.folds.insert(row_index + 1, (end + 1, depth));
                 }
             }
-            let index = self.cursor_y;
-            self.update_row_highlights(index);
-            self.update_row_highlights(index + 1);
-
             self.cursor_x = depth;
         } else {
             self.rows.push(blank_row)
         }
+        let index = self.cursor_y;
+        self.update_row_highlights(index);
+        self.update_row_highlights(index + 1);
         self.cursor_y += 1;
         self.modified = true;
     }

@@ -552,7 +552,9 @@ impl EditorCore {
                 }
                     'outer: while index < cells.len() {
                         let prev_is_sep = index == 0 || is_separator(cells[index - 1].chr);
-                        if index == 0 && prev_open_quote.is_some() || syntax.quotes.contains(cells[index].chr) {
+                        if index == 0 && prev_open_quote.is_some() ||
+                            syntax.quotes.contains(cells[index].chr)
+                        {
                             let active_quote = if index == 0 && prev_open_quote.is_some() {
                                 prev_open_quote.expect("Just checked_it")
                             } else {
@@ -579,26 +581,43 @@ impl EditorCore {
                             while index < cells.len() {
                                 update_and_advance!(EditorHighlight::Comment);
                             }
-                        } else {
-                            if index == 0 || is_separator(cells[index - 1].chr) {
-                                let following_string: String = cells_to_string(&cells[index..]);
-                                for (keywords, &highlight) in
-                                    syntax.keywords.iter().zip(EditorHighlight::KEYWORDS.iter())
-                                {
-                                    for keyword in keywords {
-                                        let keyword_end = index + keyword.len();
-                                        if following_string.starts_with(keyword) &&
-                                            (keyword_end == cells.len() ||
-                                                 is_separator(cells[keyword_end].chr))
-                                        {
-                                            while index < keyword_end {
-                                                update_and_advance!(highlight);
-                                            }
-                                            continue 'outer;
-                                        }
-                                    }
+                        } else if prev_is_sep {
+                            let following_string: String = cells_to_string(&cells[index..]);
+                            let maybe_key_and_highlight = {
+                                let mut key_and_highlights =
+                                    syntax.keywords.iter().enumerate().flat_map(
+                                        |(highlight_index, keywords)| {
+                                            keywords
+                                                .iter()
+                                                .filter(|&keyword| {
+                                                    following_string.starts_with(keyword) &&
+                                                        (keyword.len() + index == cells.len() ||
+                                                             is_separator(
+                                                                cells[keyword.len() + index].chr,
+                                                            ))
+                                                })
+                                                .map(|&keyword| {
+                                                    (
+                                                        keyword,
+                                                        EditorHighlight::KEYWORDS[highlight_index],
+                                                    )
+                                                })
+                                                .collect::<Vec<_>>()
+                                        },
+                                    );
+                                let maybe_key_and_highlight = key_and_highlights.next();
+                                assert_eq!(key_and_highlights.count(), 0);
+                                maybe_key_and_highlight
+                            };
+                            if let Some((keyword, highlight)) = maybe_key_and_highlight {
+                                let keyword_end = index + keyword.len();
+                                while index < keyword_end {
+                                    update_and_advance!(highlight);
                                 }
+                            } else {
+                                update_and_advance!(EditorHighlight::Normal);
                             }
+                        } else {
                             update_and_advance!(EditorHighlight::Normal);
                         }
                     }

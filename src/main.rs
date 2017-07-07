@@ -324,33 +324,6 @@ fn string_to_row(s: &str) -> Row {
     }
 }
 
-fn update_highlights_string(
-    cells: &mut [Cell],
-    start_quote: char,
-    start_index: usize,
-) -> (usize, bool) {
-    let mut index = start_index;
-    macro_rules! update_and_advance {
-            ($highlight_expression:expr) => {
-                 cells[index].hl = $highlight_expression;
-                 index += 1;
-            }
-        }
-
-    while index < cells.len() {
-        if cells[index].chr == start_quote {
-            update_and_advance!(EditorHighlight::String);
-            return (index, false);
-        }
-        if cells[index].chr == '\\' && index + 1 < cells.len() {
-            update_and_advance!(EditorHighlight::String);
-        }
-        update_and_advance!(EditorHighlight::String);
-    }
-    (index, true)
-}
-
-
 /// * i/o **
 
 fn read_key(input_source: &mut Read) -> EditorKey {
@@ -562,9 +535,19 @@ impl EditorCore {
                                 update_and_advance!(EditorHighlight::String);
                                 start_quote
                             };
-                            let (new_index, is_open) =
-                                update_highlights_string(cells, active_quote, index);
-                            index = new_index;
+                            let mut is_open = true;
+                            while index < cells.len() {
+                                if cells[index].chr == active_quote {
+                                    update_and_advance!(EditorHighlight::String);
+                                    is_open = false;
+                                    break;
+                                }
+                                if cells[index].chr == '\\' && index + 1 < cells.len() {
+                                    update_and_advance!(EditorHighlight::String);
+                                }
+                                update_and_advance!(EditorHighlight::String);
+                            }
+
                             if is_open {
                                 row.open_quote = Some(active_quote);
                                 update_next = true;

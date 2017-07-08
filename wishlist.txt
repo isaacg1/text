@@ -4,6 +4,7 @@ Cut, Copy, Paste
 Undo (Maybe too ambitious?)
 Multiline comments
 Autointent/Dedent chars
+Delete line string highlighting bug
 
 Done:
 Refresh file (Ctrl-e)

@@ -1322,6 +1322,7 @@ where
                 EditorKey::Verbatim(chr) if chr == ctrl_key('g') => self.go_to(),
                 EditorKey::Verbatim(chr) if chr == ctrl_key(' ') => self.core.toggle_fold(),
                 EditorKey::Verbatim(chr) if chr == ctrl_key('p') => self.toggle_paste_mode(),
+                EditorKey::Verbatim(chr) if chr == ctrl_key('h') => self.display_help(),
                 // Editing commands
                 EditorKey::Delete |
                 EditorKey::Verbatim(_) if self.core.folds.contains_key(&self.core.cursor_y) => {
@@ -1342,7 +1343,7 @@ where
                         }
                     }
                 }
-                EditorKey::Verbatim(chr) if chr as usize == 127 || chr == ctrl_key('h') => {
+                EditorKey::Verbatim(chr) if chr as usize == 127 => {
                     let delete_result = self.core.delete_char();
                     if let Err(reason) = delete_result {
                         assert_eq!(reason, DONT_EDIT_FOLDS);

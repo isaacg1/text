@@ -1,6 +1,6 @@
 #![allow(unknown_lints)]
 #![warn(clippy_pedantic)]
-#![allow(print_stdout, missing_docs_in_private_items)]
+#![allow(print_stdout, missing_docs_in_private_items, filter_map)]
 #![feature(associated_consts)]
 extern crate termios;
 extern crate libc;
@@ -190,9 +190,10 @@ impl EditorSyntax {
                     ],
                     vec![
                         "box",
-                        "mut",
                         "const",
                         "enum",
+                        "move",
+                        "mut",
                         "ref",
                         "static",
                         "struct",
@@ -523,7 +524,7 @@ impl EditorCore {
                         index += 1;
                     }
                 }
-                    'outer: while index < cells.len() {
+                    while index < cells.len() {
                         let prev_is_sep = index == 0 || is_separator(cells[index - 1].chr);
                         if index == 0 && prev_open_quote.is_some() ||
                             syntax.quotes.contains(cells[index].chr)
@@ -566,34 +567,31 @@ impl EditorCore {
                             }
                         } else if prev_is_sep {
                             let following_string: String = cells_to_string(&cells[index..]);
-                            let maybe_key_and_highlight = {
-                                let mut key_and_highlights =
-                                    syntax.keywords.iter().enumerate().flat_map(
-                                        |(highlight_index, keywords)| {
-                                            keywords
-                                                .iter()
-                                                .filter(|&keyword| {
-                                                    following_string.starts_with(keyword) &&
-                                                        (keyword.len() + index == cells.len() ||
-                                                             is_separator(
-                                                                cells[keyword.len() + index].chr,
-                                                            ))
-                                                })
-                                                .map(|&keyword| {
-                                                    (
-                                                        keyword,
-                                                        EditorHighlight::KEYWORDS[highlight_index],
-                                                    )
-                                                })
-                                                .collect::<Vec<_>>()
-                                        },
-                                    );
-                                let maybe_key_and_highlight = key_and_highlights.next();
-                                assert_eq!(key_and_highlights.count(), 0);
-                                maybe_key_and_highlight
-                            };
-                            if let Some((keyword, highlight)) = maybe_key_and_highlight {
-                                let keyword_end = index + keyword.len();
+                            let key_and_highlight: Vec<
+                                (usize, EditorHighlight),
+                            > = syntax
+                                .keywords
+                                .iter()
+                                .enumerate()
+                                .flat_map(|(highlight_index, keywords)| {
+                                    keywords
+                                        .iter()
+                                        .filter(|&keyword| {
+                                            following_string.starts_with(keyword) &&
+                                                (keyword.len() + index == cells.len() ||
+                                                     is_separator(cells[keyword.len() + index].chr))
+                                        })
+                                        .map(move |keyword| {
+                                            (
+                                                keyword.len(),
+                                                EditorHighlight::KEYWORDS[highlight_index],
+                                            )
+                                        })
+                                })
+                                .collect();
+                            assert!(key_and_highlight.len() <= 1);
+                            if let Some(&(keyword_len, highlight)) = key_and_highlight.first() {
+                                let keyword_end = index + keyword_len;
                                 while index < keyword_end {
                                     update_and_advance!(highlight);
                                 }
@@ -713,7 +711,7 @@ impl EditorCore {
                 self.shift_folds_back();
                 self.modified = true;
             } else if self.cursor_x == self.current_row_len() {
-                self.cursor_y = self.cursor_y + 1;
+                self.cursor_y += 1;
                 self.cursor_x = 0;
             } else {
                 self.rows[self.cursor_y].cells.truncate(self.cursor_x);
@@ -991,6 +989,13 @@ where
                 Err(_) => self.set_status_message("Line was not numeric"),
             }
         }
+    }
+
+    fn display_help(&mut self) {
+        self.set_status_message(
+            "C-s save, C-q quit, C-f find, C-' ' fold, \
+             C-e refresh, C-k del row, C-g go to, C-p paste mode, C-h help.",
+        )
     }
 
     /// * output **
@@ -1364,10 +1369,7 @@ fn run() {
         editor_config.filename = Some(filename);
         editor_config.open().expect("Opening file failed")
     }
-    editor_config.set_status_message(
-        "Help: C-s save, C-q quit, C-f find, \
-         C-' ' fold, C-e refresh, C-k del row, C-g go to, C-p paste mode.",
-    );
+    editor_config.display_help();
     loop {
         editor_config.warn_consistency();
         editor_config
@@ -1609,7 +1611,6 @@ mod tests {
                 .all(|cell| { cell.hl == EditorHighlight::Normal })
         );
     }
-
     #[test]
     fn multiline_string_highlight() {
         let text = "Outside \"Inside

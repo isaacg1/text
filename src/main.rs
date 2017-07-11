@@ -50,10 +50,85 @@ const CLEAR_SCREEN: &'static str = "\x1b[2J";
 const DONT_EDIT_FOLDS: &'static str = "Folded lines can't be edited. Ctrl-Space to unfold.";
 
 /// * data **
+struct EditorConfig<'syntax, T: Read, W: Write> {
+    core: EditorCore<'syntax>,
+    screen_rows: usize,
+    screen_cols: usize,
+    row_offset: usize,
+    col_offset: usize,
+    filename: Option<String>,
+    status: Status,
+    quit_times: usize,
+    input_source: T,
+    output_buffer: W,
+    current_match: Option<(usize, usize, usize)>,
+    saved_search: String,
+    paste_mode: bool,
+}
+
+struct EditorCore<'syntax> {
+    cursor_x: usize,
+    cursor_y: usize,
+    rows: Vec<Row>,
+    syntax: Option<EditorSyntax<'syntax>>,
+    folds: HashMap<usize, (usize, usize)>,
+    modified: bool,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+enum EditorHighlight {
+    Normal,
+    Number,
+    Match,
+    String,
+    Comment,
+    Keyword1,
+    Keyword2,
+    Keyword3,
+    Keyword4,
+}
+
+impl EditorHighlight {
+    fn apply_to(&self, to_color: ColoredString) -> ColoredString {
+        match *self {
+            EditorHighlight::Normal => to_color,
+            EditorHighlight::Number => to_color.red(),
+            EditorHighlight::Match => to_color.on_blue(),
+            EditorHighlight::String => to_color.magenta().bold(),
+            EditorHighlight::Comment => to_color.cyan(),
+            EditorHighlight::Keyword1 => to_color.yellow(),
+            EditorHighlight::Keyword2 => to_color.green(),
+            EditorHighlight::Keyword3 => to_color.green().bold(),
+            EditorHighlight::Keyword4 => to_color.yellow().bold(),
+        }
+    }
+    const KEYWORDS: [Self; 4] = [
+        EditorHighlight::Keyword1,
+        EditorHighlight::Keyword2,
+        EditorHighlight::Keyword3,
+        EditorHighlight::Keyword4,
+    ];
+}
+
+#[derive(Copy, Clone, PartialEq)]
+enum EditorKey {
+    Verbatim(char),
+    ArrowLeft,
+    ArrowRight,
+    ArrowUp,
+    ArrowDown,
+    PageUp,
+    PageDown,
+    Home,
+    End,
+    Delete,
+}
+
+fn ctrl_key(k: char) -> char {
+    (k as u8 & 0x1f) as char
+}
+
 #[derive(Clone)]
-// text and highlight must be the same length
-// TODO move somewhere more sensible.
-// Remove entirely
 struct Row {
     text: String,
 }
@@ -154,83 +229,6 @@ impl Row {
             )
         }
     }
-}
-
-struct EditorConfig<'syntax, T: Read, W: Write> {
-    core: EditorCore<'syntax>,
-    screen_rows: usize,
-    screen_cols: usize,
-    row_offset: usize,
-    col_offset: usize,
-    filename: Option<String>,
-    status: Status,
-    quit_times: usize,
-    input_source: T,
-    output_buffer: W,
-    saved_search: String,
-    paste_mode: bool,
-}
-
-struct EditorCore<'syntax> {
-    cursor_x: usize,
-    cursor_y: usize,
-    rows: Vec<Row>,
-    syntax: Option<EditorSyntax<'syntax>>,
-    folds: HashMap<usize, (usize, usize)>,
-    modified: bool,
-}
-
-#[derive(Copy, Clone, Debug, PartialEq)]
-enum EditorHighlight {
-    Normal,
-    Number,
-    Match,
-    String,
-    Comment,
-    Keyword1,
-    Keyword2,
-    Keyword3,
-    Keyword4,
-}
-
-impl EditorHighlight {
-    fn apply_to(&self, to_color: ColoredString) -> ColoredString {
-        match *self {
-            EditorHighlight::Normal => to_color,
-            EditorHighlight::Number => to_color.red(),
-            EditorHighlight::Match => to_color.on_blue(),
-            EditorHighlight::String => to_color.magenta().bold(),
-            EditorHighlight::Comment => to_color.cyan(),
-            EditorHighlight::Keyword1 => to_color.yellow(),
-            EditorHighlight::Keyword2 => to_color.green(),
-            EditorHighlight::Keyword3 => to_color.green().bold(),
-            EditorHighlight::Keyword4 => to_color.yellow().bold(),
-        }
-    }
-    const KEYWORDS: [Self; 4] = [
-        EditorHighlight::Keyword1,
-        EditorHighlight::Keyword2,
-        EditorHighlight::Keyword3,
-        EditorHighlight::Keyword4,
-    ];
-}
-
-#[derive(Copy, Clone, PartialEq)]
-enum EditorKey {
-    Verbatim(char),
-    ArrowLeft,
-    ArrowRight,
-    ArrowUp,
-    ArrowDown,
-    PageUp,
-    PageDown,
-    Home,
-    End,
-    Delete,
-}
-
-fn ctrl_key(k: char) -> char {
-    (k as u8 & 0x1f) as char
 }
 
 struct Status {
@@ -759,6 +757,7 @@ where
                 quit_times: 3,
                 input_source: io::stdin(),
                 output_buffer: BufWriter::new(io::stdout()),
+                current_match: None,
                 saved_search: String::new(),
                 paste_mode: false,
             }
@@ -863,17 +862,7 @@ where
                 self.core.open_folds();
                 self.core.cursor_x = col_index;
                 self.row_offset = row_index.checked_sub(self.screen_rows / 2).unwrap_or(0);
-                // TODO: Do what this did.
-                /*
-                for hl in self.core.rows[row_index]
-                    .highlight
-                    .iter_mut()
-                    .skip(col_index)
-                    .take(query.len())
-                {
-                    *hl = EditorHighlight::Match
-                }
-                */
+                self.current_match = Some((row_index, col_index, query.len()));
             }
         }
     }
@@ -892,6 +881,7 @@ where
             &search_start,
             Some(&|ed, query, key| ed.find_callback(query, key)),
         );
+        self.current_match = None;
 
         match query {
             None => {
@@ -976,10 +966,11 @@ where
                     let (highlights, next_open_quote) = current_row
                         .make_highlights(&self.core.syntax, prev_open_quote);
                     prev_open_quote = next_open_quote;
-                    for (chr, hl) in current_row
+                    for (index, (chr, &hl)) in current_row
                         .text
                         .chars()
                         .zip(highlights.iter())
+                        .enumerate()
                         .skip(self.col_offset)
                     {
                         chars_written += if chr == '\t' { TAB_STOP } else { 1 };
@@ -998,7 +989,16 @@ where
                         } else {
                             chr.to_string().normal()
                         };
-                        write!(self.output_buffer, "{}", hl.apply_to(to_write))?;
+                        let top_hl = if let Some((row, col, len)) = self.current_match {
+                            if row == file_row && col <= index && col + len > index {
+                                EditorHighlight::Match
+                            } else {
+                                hl
+                            }
+                        } else {
+                            hl
+                        };
+                        write!(self.output_buffer, "{}", top_hl.apply_to(to_write))?;
                     }
                 }
                 file_row += 1;
@@ -1359,6 +1359,7 @@ mod tests {
             }),
             output_buffer: io::sink(),
             saved_search: String::new(),
+            current_match: None,
             paste_mode: false,
         }
     }
@@ -1742,11 +1743,7 @@ mod tests {
 
         let saved = &mock.saved_search.clone();
         mock.find_callback(saved, EditorKey::ArrowDown);
-
-        let (h0, _) = mock.core.rows[0].make_highlights(&mock.core.syntax, None);
-        assert!(h0[..19].iter().all(|&hl| hl == EditorHighlight::Normal));
-        assert!(h0[19..25].iter().all(|&hl| hl == EditorHighlight::Match));
-        assert!(h0[25..].iter().all(|&hl| hl == EditorHighlight::Normal));
+        assert_eq!(Some((0, 19, 6)), mock.current_match);
     }
 
     #[test]

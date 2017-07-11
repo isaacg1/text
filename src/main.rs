@@ -164,11 +164,11 @@ impl Row {
                         new_hls.push(EditorHighlight::String);
                         start_quote
                     };
-                    let mut string_ended = false;
+                    open_quote = Some(active_quote);
                     while new_hls.len() < text.len() {
                         if text[new_hls.len()] == active_quote {
                             new_hls.push(EditorHighlight::String);
-                            string_ended = true;
+                            open_quote = None;
                             break;
                         }
                         if text[new_hls.len()] == '\\' && new_hls.len() + 1 < text.len() {
@@ -176,17 +176,13 @@ impl Row {
                         }
                         new_hls.push(EditorHighlight::String);
                     }
-                    if !string_ended {
-                        open_quote = Some(active_quote)
-                    }
                 } else if syntax.has_digits && text[new_hls.len()].is_digit(10) && prev_is_sep {
                     while new_hls.len() < text.len() && text[new_hls.len()].is_digit(10) {
                         new_hls.push(EditorHighlight::Number);
                     }
                 } else if self.text[new_hls.len()..].starts_with(syntax.singleline_comment) {
-                    while new_hls.len() < text.len() {
-                        new_hls.push(EditorHighlight::Comment);
-                    }
+                    let chars_remaining = text.len() - new_hls.len();
+                    new_hls.extend(repeat(EditorHighlight::Comment).take(chars_remaining));
                 } else if prev_is_sep {
                     let following_string: String = self.text[new_hls.len()..].to_string();
                     let key_and_highlight: Vec<(usize, EditorHighlight)> = syntax
@@ -208,10 +204,7 @@ impl Row {
                         .collect();
                     assert!(key_and_highlight.len() <= 1);
                     if let Some(&(keyword_len, highlight)) = key_and_highlight.first() {
-                        // TODO: Use iterator
-                        for _ in 0..keyword_len {
-                            new_hls.push(highlight);
-                        }
+                        new_hls.extend(repeat(highlight).take(keyword_len));
                     } else {
                         new_hls.push(EditorHighlight::Normal);
                     }
@@ -426,35 +419,37 @@ fn read_key(input_source: &mut Read) -> EditorKey {
             .read(&mut escape_buf)
             .expect("Read failure during escape sequence") {
             2 | 3 => {
-                if escape_buf[0] as char == '[' {
-                    if escape_buf[2] as char == '~' {
-                        match escape_buf[1] as char {
-                            '1' | '7' => Some(EditorKey::Home),
-                            '3' => Some(EditorKey::Delete),
-                            '4' | '8' => Some(EditorKey::End),
-                            '5' => Some(EditorKey::PageUp),
-                            '6' => Some(EditorKey::PageDown),
-                            _ => None,
+                match escape_buf[0] as char {
+                    '[' => {
+                        if escape_buf[2] as char == '~' {
+                            match escape_buf[1] as char {
+                                '1' | '7' => Some(EditorKey::Home),
+                                '3' => Some(EditorKey::Delete),
+                                '4' | '8' => Some(EditorKey::End),
+                                '5' => Some(EditorKey::PageUp),
+                                '6' => Some(EditorKey::PageDown),
+                                _ => None,
+                            }
+                        } else {
+                            match escape_buf[1] as char {
+                                'A' => Some(EditorKey::ArrowUp),
+                                'B' => Some(EditorKey::ArrowDown),
+                                'C' => Some(EditorKey::ArrowRight),
+                                'D' => Some(EditorKey::ArrowLeft),
+                                'H' => Some(EditorKey::Home),
+                                'F' => Some(EditorKey::End),
+                                _ => None,
+                            }
                         }
-                    } else {
+                    }
+                    'O' => {
                         match escape_buf[1] as char {
-                            'A' => Some(EditorKey::ArrowUp),
-                            'B' => Some(EditorKey::ArrowDown),
-                            'C' => Some(EditorKey::ArrowRight),
-                            'D' => Some(EditorKey::ArrowLeft),
                             'H' => Some(EditorKey::Home),
                             'F' => Some(EditorKey::End),
                             _ => None,
                         }
                     }
-                } else if escape_buf[0] as char == 'O' {
-                    match escape_buf[1] as char {
-                        'H' => Some(EditorKey::Home),
-                        'F' => Some(EditorKey::End),
-                        _ => None,
-                    }
-                } else {
-                    None
+                    _ => None,
                 }
             }
             _ => None,
@@ -834,11 +829,9 @@ where
                 .iter()
                 .enumerate()
                 .flat_map(|(row_index, row)| {
-                    // See if I can remove the collect now
                     row.text
                         .match_indices(query)
-                        .map(|(char_index, _)| (row_index, char_index))
-                        .collect::<Vec<(usize, usize)>>()
+                        .map(move |(char_index, _)| (row_index, char_index))
                 })
                 .collect();
             // We sort by ! of whether the row index is forward,
@@ -966,12 +959,14 @@ where
                     let (highlights, next_open_quote) = current_row
                         .make_highlights(&self.core.syntax, prev_open_quote);
                     prev_open_quote = next_open_quote;
-                    for (index, (chr, &hl)) in current_row
-                        .text
-                        .chars()
-                        .zip(highlights.iter())
-                        .enumerate()
-                        .skip(self.col_offset)
+                    assert_eq!(highlights.len(), current_row.text.len());
+                    for (index, (chr, &hl)) in
+                        current_row
+                            .text
+                            .chars()
+                            .zip(highlights.iter())
+                            .enumerate()
+                            .skip(self.col_offset)
                     {
                         chars_written += if chr == '\t' { TAB_STOP } else { 1 };
                         if chars_written > self.screen_cols {

@@ -13,6 +13,8 @@ use std::fs::File;
 use std::path::Path;
 use std::env;
 
+use std::iter::repeat;
+
 use std::panic::catch_unwind;
 
 use std::time::Instant;
@@ -49,9 +51,23 @@ const DONT_EDIT_FOLDS: &'static str = "Folded lines can't be edited. Ctrl-Space 
 
 /// * data **
 #[derive(Clone)]
+// text and highlight must be the same length
+// TODO: get rid of highlight.
+// TODO move somewhere more sensible.
 struct Row {
-    cells: Vec<Cell>,
+    text: String,
+    highlight: Vec<EditorHighlight>,
     open_quote: Option<char>,
+}
+
+impl Row {
+    fn new() -> Row {
+        Row {
+            text: String::new(),
+            highlight: vec![],
+            open_quote: None,
+        }
+    }
 }
 
 struct EditorConfig<'syntax, T: Read, W: Write> {
@@ -76,12 +92,6 @@ struct EditorCore<'syntax> {
     syntax: Option<EditorSyntax<'syntax>>,
     folds: HashMap<usize, (usize, usize)>,
     modified: bool,
-}
-
-#[derive(Copy, Clone)]
-struct Cell {
-    chr: char,
-    hl: EditorHighlight,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -306,32 +316,18 @@ fn is_separator(c: char) -> bool {
 }
 
 fn whitespace_depth(row: &Row) -> usize {
-    row.cells
-        .iter()
-        .position(|cell| !cell.chr.is_whitespace())
-        .unwrap_or_else(|| row.cells.len())
+    row.text
+        .chars()
+        .position(|cell| !cell.is_whitespace())
+        .unwrap_or_else(|| row.text.len())
 }
 
 /// * row operations **
 
-fn row_to_string(row: &Row) -> String {
-    cells_to_string(&row.cells)
-}
-
-fn cells_to_string(cells: &[Cell]) -> String {
-    cells.iter().map(|&cell| cell.chr).collect::<String>()
-}
-
 fn string_to_row(s: &str) -> Row {
     Row {
-        cells: s.chars()
-            .map(|c| {
-                Cell {
-                    chr: c,
-                    hl: EditorHighlight::Normal,
-                }
-            })
-            .collect(),
+        text: s.to_string(),
+        highlight: repeat(EditorHighlight::Normal).take(s.len()).collect(),
         open_quote: None,
     }
 }
@@ -424,9 +420,7 @@ impl<'syntax> EditorCore<'syntax> {
     }
 
     fn current_row_len(&self) -> usize {
-        self.rows
-            .get(self.cursor_y)
-            .map_or(0, |row| row.cells.len())
+        self.rows.get(self.cursor_y).map_or(0, |row| row.text.len())
     }
     fn toggle_fold(&mut self) {
         if self.folds.contains_key(&self.cursor_y) {
@@ -453,7 +447,7 @@ impl<'syntax> EditorCore<'syntax> {
     fn create_fold(&mut self) {
         if self.cursor_y < self.rows.len() {
             let fold_depth = whitespace_depth(&self.rows[self.cursor_y]);
-            let is_not_in_fold = |row| whitespace_depth(row) < fold_depth && !row.cells.is_empty();
+            let is_not_in_fold = |row| whitespace_depth(row) < fold_depth && !row.text.is_empty();
             let start = self.rows
                 .iter()
                 .rev()
@@ -521,63 +515,56 @@ impl<'syntax> EditorCore<'syntax> {
                     update_next = true;
                 }
                 row.open_quote = None;
-                let mut cells = &mut row.cells;
-                if cells.is_empty() {
+                let text: Vec<char> = row.text.chars().collect();
+                if text.is_empty() {
                     row.open_quote = prev_open_quote;
                     if prev_open_quote.is_some() {
                         update_next = true;
                     }
                 } else {
-                    let mut index = 0;
-                    macro_rules! update_and_advance {
-                    ($highlight_expression:expr) => {
-                        cells[index].hl = $highlight_expression;
-                        index += 1;
-                    }
-                }
-                    while index < cells.len() {
-                        let prev_is_sep = index == 0 || is_separator(cells[index - 1].chr);
-                        if index == 0 && prev_open_quote.is_some() ||
-                            syntax.quotes.contains(cells[index].chr)
+                    let mut new_hls = vec![];
+                    while new_hls.len() < text.len() {
+                        let prev_is_sep = new_hls.len() == 0 ||
+                            is_separator(text[new_hls.len() - 1]);
+                        if new_hls.len() == 0 && prev_open_quote.is_some() ||
+                            syntax.quotes.contains(text[new_hls.len()])
                         {
-                            let active_quote = if index == 0 && prev_open_quote.is_some() {
+                            let active_quote = if new_hls.len() == 0 && prev_open_quote.is_some() {
                                 prev_open_quote.expect("Just checked_it")
                             } else {
-                                let start_quote = cells[index].chr;
-                                update_and_advance!(EditorHighlight::String);
+                                let start_quote = text[new_hls.len()];
+                                new_hls.push(EditorHighlight::String);
                                 start_quote
                             };
                             let mut is_open = true;
-                            while index < cells.len() {
-                                if cells[index].chr == active_quote {
-                                    update_and_advance!(EditorHighlight::String);
+                            while new_hls.len() < text.len() {
+                                if text[new_hls.len()] == active_quote {
+                                    new_hls.push(EditorHighlight::String);
                                     is_open = false;
                                     break;
                                 }
-                                if cells[index].chr == '\\' && index + 1 < cells.len() {
-                                    update_and_advance!(EditorHighlight::String);
+                                if text[new_hls.len()] == '\\' && new_hls.len() + 1 < text.len() {
+                                    new_hls.push(EditorHighlight::String);
                                 }
-                                update_and_advance!(EditorHighlight::String);
+                                new_hls.push(EditorHighlight::String);
                             }
 
                             if is_open {
                                 row.open_quote = Some(active_quote);
                                 update_next = true;
                             }
-                        } else if syntax.has_digits && cells[index].chr.is_digit(10) &&
+                        } else if syntax.has_digits && text[new_hls.len()].is_digit(10) &&
                                    prev_is_sep
                         {
-                            while index < cells.len() && cells[index].chr.is_digit(10) {
-                                update_and_advance!(EditorHighlight::Number);
+                            while new_hls.len() < text.len() && text[new_hls.len()].is_digit(10) {
+                                new_hls.push(EditorHighlight::Number);
                             }
-                        } else if cells_to_string(&cells[index..])
-                                   .starts_with(&syntax.singleline_comment)
-                        {
-                            while index < cells.len() {
-                                update_and_advance!(EditorHighlight::Comment);
+                        } else if row.text[new_hls.len()..].starts_with(syntax.singleline_comment) {
+                            while new_hls.len() < text.len() {
+                                new_hls.push(EditorHighlight::Comment);
                             }
                         } else if prev_is_sep {
-                            let following_string: String = cells_to_string(&cells[index..]);
+                            let following_string: String = row.text[new_hls.len()..].to_string();
                             let key_and_highlight: Vec<
                                 (usize, EditorHighlight),
                             > = syntax
@@ -589,8 +576,10 @@ impl<'syntax> EditorCore<'syntax> {
                                         .iter()
                                         .filter(|&keyword| {
                                             following_string.starts_with(keyword) &&
-                                                (keyword.len() + index == cells.len() ||
-                                                     is_separator(cells[keyword.len() + index].chr))
+                                                (keyword.len() + new_hls.len() == text.len() ||
+                                                     is_separator(
+                                                        text[keyword.len() + new_hls.len()],
+                                                    ))
                                         })
                                         .map(move |keyword| {
                                             (
@@ -602,22 +591,23 @@ impl<'syntax> EditorCore<'syntax> {
                                 .collect();
                             assert!(key_and_highlight.len() <= 1);
                             if let Some(&(keyword_len, highlight)) = key_and_highlight.first() {
-                                let keyword_end = index + keyword_len;
-                                while index < keyword_end {
-                                    update_and_advance!(highlight);
+                                // TODO: Use iterator
+                                for _ in 0..keyword_len {
+                                    new_hls.push(highlight);
                                 }
                             } else {
-                                update_and_advance!(EditorHighlight::Normal);
+                                new_hls.push(EditorHighlight::Normal);
                             }
                         } else {
-                            update_and_advance!(EditorHighlight::Normal);
+                            new_hls.push(EditorHighlight::Normal);
                         }
                     }
+                    row.highlight = new_hls;
                 }
             } else {
-                for cell in &mut row.cells {
-                    cell.hl = EditorHighlight::Normal
-                }
+                row.highlight = repeat(EditorHighlight::Normal)
+                    .take(row.text.len())
+                    .collect();
             }
         }
         if row_index < self.rows.len() && update_next {
@@ -626,18 +616,13 @@ impl<'syntax> EditorCore<'syntax> {
     }
     fn insert_char(&mut self, c: char) {
         if self.cursor_y == self.rows.len() {
-            self.rows.push(Row {
-                cells: Vec::new(),
-                open_quote: None,
-            });
+            self.rows.push(Row::new());
         }
-        self.rows[self.cursor_y].cells.insert(
-            self.cursor_x,
-            Cell {
-                chr: c,
-                hl: EditorHighlight::Normal,
-            },
-        );
+        // TODO: less repetition
+        self.rows[self.cursor_y].text.insert(self.cursor_x, c);
+        self.rows[self.cursor_y]
+            .highlight
+            .insert(self.cursor_x, EditorHighlight::Normal);
         let index = self.cursor_y;
         self.update_row_highlights(index);
         self.cursor_x += 1;
@@ -646,19 +631,13 @@ impl<'syntax> EditorCore<'syntax> {
 
     fn insert_tab(&mut self) {
         if self.cursor_y == self.rows.len() {
-            self.rows.push(Row {
-                cells: Vec::new(),
-                open_quote: None,
-            });
+            self.rows.push(Row::new());
         }
         for _ in 0..4 - self.cursor_x % 4 {
-            self.rows[self.cursor_y].cells.insert(
-                self.cursor_x,
-                Cell {
-                    chr: ' ',
-                    hl: EditorHighlight::Normal,
-                },
-            );
+            self.rows[self.cursor_y].text.insert(self.cursor_x, ' ');
+            self.rows[self.cursor_y]
+                .highlight
+                .insert(self.cursor_x, EditorHighlight::Normal);
             self.cursor_x += 1;
         }
         let index = self.cursor_y;
@@ -666,13 +645,6 @@ impl<'syntax> EditorCore<'syntax> {
         self.modified = true;
     }
     fn insert_newline(&mut self, paste_mode: bool) {
-        let blank_row = {
-            Row {
-                cells: vec![],
-                open_quote: None,
-            }
-        };
-
         if self.cursor_y < self.rows.len() {
             let depth = if paste_mode {
                 0
@@ -681,14 +653,12 @@ impl<'syntax> EditorCore<'syntax> {
             };
             // If in the whitespace, insert blank line.
             if depth >= self.cursor_x {
-                self.rows.insert(self.cursor_y, blank_row);
+                self.rows.insert(self.cursor_y, Row::new());
             } else {
-                let cells_end = self.rows[self.cursor_y].cells.split_off(self.cursor_x);
-                let mut next_row_cells = self.rows[self.cursor_y].cells[..depth].to_vec();
-                next_row_cells.extend(cells_end);
-                let next_row = Row {
-                    cells: next_row_cells,
-                    open_quote: None,
+                let text_end = self.rows[self.cursor_y].text.split_off(self.cursor_x);
+                let next_row = {
+                    let next_row_text = self.rows[self.cursor_y].text[..depth].to_string();
+                    string_to_row(&(next_row_text + &text_end))
                 };
                 self.rows.insert(self.cursor_y + 1, next_row);
             }
@@ -699,7 +669,7 @@ impl<'syntax> EditorCore<'syntax> {
             }
             self.cursor_x = depth;
         } else {
-            self.rows.push(blank_row)
+            self.rows.push(Row::new())
         }
         let index = self.cursor_y;
         self.update_row_highlights(index);
@@ -725,7 +695,8 @@ impl<'syntax> EditorCore<'syntax> {
                 self.cursor_y += 1;
                 self.cursor_x = 0;
             } else {
-                self.rows[self.cursor_y].cells.truncate(self.cursor_x);
+                self.rows[self.cursor_y].text.truncate(self.cursor_x);
+                self.rows[self.cursor_y].text.truncate(self.cursor_x);
                 let index = self.cursor_y;
                 self.update_row_highlights(index);
                 self.modified = true;
@@ -735,7 +706,8 @@ impl<'syntax> EditorCore<'syntax> {
 
     fn delete_char(&mut self) -> Result<(), String> {
         if let Some(prev_x) = self.cursor_x.checked_sub(1) {
-            self.rows[self.cursor_y].cells.remove(prev_x);
+            self.rows[self.cursor_y].text.remove(prev_x);
+            self.rows[self.cursor_y].highlight.remove(prev_x);
             let index = self.cursor_y;
             self.update_row_highlights(index);
             self.cursor_x = prev_x;
@@ -748,10 +720,10 @@ impl<'syntax> EditorCore<'syntax> {
             {
                 Err(DONT_EDIT_FOLDS.to_owned())
             } else {
-                self.cursor_x = self.rows[self.cursor_y - 1].cells.len();
+                self.cursor_x = self.rows[self.cursor_y - 1].text.len();
                 let moved_line = self.rows.remove(self.cursor_y);
-                let line_to_append = &moved_line.cells[whitespace_depth(&moved_line)..];
-                self.rows[self.cursor_y - 1].cells.extend(line_to_append);
+                let line_to_append = &moved_line.text[whitespace_depth(&moved_line)..];
+                self.rows[self.cursor_y - 1].text.push_str(line_to_append);
                 self.rows[self.cursor_y - 1].open_quote = moved_line.open_quote;
                 self.shift_folds_back();
                 self.cursor_y -= 1;
@@ -793,7 +765,7 @@ impl<'syntax> EditorCore<'syntax> {
     fn all_text(&self) -> String {
         self.rows
             .iter()
-            .map(|row| row_to_string(row))
+            .map(|row| row.text.clone())
             .collect::<Vec<_>>()
             .join("\n")
     }
@@ -923,7 +895,8 @@ where
                 .iter()
                 .enumerate()
                 .flat_map(|(row_index, row)| {
-                    row_to_string(row)
+                    // See if I can remove the collect now
+                    row.text
                         .match_indices(query)
                         .map(|(char_index, _)| (row_index, char_index))
                         .collect::<Vec<(usize, usize)>>()
@@ -950,13 +923,13 @@ where
                 self.core.open_folds();
                 self.core.cursor_x = col_index;
                 self.row_offset = row_index.checked_sub(self.screen_rows / 2).unwrap_or(0);
-                for cell in self.core.rows[row_index]
-                    .cells
+                for hl in self.core.rows[row_index]
+                    .highlight
                     .iter_mut()
                     .skip(col_index)
                     .take(query.len())
                 {
-                    cell.hl = EditorHighlight::Match
+                    *hl = EditorHighlight::Match
                 }
             }
         }
@@ -1035,21 +1008,13 @@ where
         let mut file_row = self.row_offset;
         while screen_y < self.screen_rows {
             if let Some(&(fold_end, fold_depth)) = self.core.folds.get(&file_row) {
-                let cells = &self.core.rows[file_row].cells;
-                let fold_white_cells = if fold_depth < cells.len() {
-                    cells[..fold_depth].to_vec()
+                let text = &self.core.rows[file_row].text;
+                let fold_white_cells = if fold_depth < text.len() {
+                    text[..fold_depth].to_string()
                 } else {
-                    string_to_row(&" ".repeat(fold_depth)).cells
+                    " ".repeat(fold_depth)
                 };
-                let fold_white_visible = Row {
-                    cells: if self.col_offset < fold_white_cells.len() {
-                        fold_white_cells[self.col_offset..].to_vec()
-                    } else {
-                        vec![]
-                    },
-                    open_quote: None,
-                };
-                let mut fold_white_str = row_to_string(&fold_white_visible).replace("\t", tab);
+                let mut fold_white_str = fold_white_cells.replace("\t", tab);
                 let fold_msg = format!("{} lines folded.", fold_end - file_row + 1);
                 fold_white_str.truncate(self.screen_cols.saturating_sub(fold_msg.len()));
                 let remaining_width = self.screen_cols.saturating_sub(fold_white_str.len());
@@ -1062,10 +1027,15 @@ where
                 )?;
                 file_row = fold_end + 1;
             } else if file_row < self.core.rows.len() {
-                let current_cells = &self.core.rows[file_row].cells;
-                if self.col_offset < current_cells.len() {
+                let current_row = &self.core.rows[file_row];
+                if self.col_offset < current_row.text.len() {
                     let mut chars_written = 0;
-                    for &Cell { chr, hl } in current_cells.iter().skip(self.col_offset) {
+                    for (chr, hl) in current_row
+                        .text
+                        .chars()
+                        .zip(current_row.highlight.iter())
+                        .skip(self.col_offset)
+                    {
                         chars_written += if chr == '\t' { TAB_STOP } else { 1 };
                         if chars_written > self.screen_cols {
                             break;
@@ -1129,7 +1099,7 @@ where
             self.core
                 .rows
                 .get(self.core.cursor_y,)
-                .map_or(0, |row| row.cells.len(),)
+                .map_or(0, |row| row.text.len())
         );
         right_status.truncate(self.screen_cols.saturating_sub(status.len() + 1));
         let room_remaining = self.screen_cols - status.len();
@@ -1222,11 +1192,11 @@ where
 
     fn screen_x(&self) -> usize {
         self.core.rows.get(self.core.cursor_y).map_or(0, |row| {
-            row.cells
-                .iter()
+            row.text
+                .chars()
                 .take(self.core.cursor_x)
                 .skip(self.col_offset)
-                .map(|cell| if cell.chr == '\t' { TAB_STOP } else { 1 })
+                .map(|chr| if chr == '\t' { TAB_STOP } else { 1 })
                 .sum()
         })
     }
@@ -1346,7 +1316,7 @@ where
                 EditorKey::Verbatim('\r') => self.core.insert_newline(self.paste_mode),
                 EditorKey::Delete => {
                     if self.core.folds.contains_key(&(self.core.cursor_y + 1)) &&
-                        self.core.cursor_x == self.core.rows[self.core.cursor_y].cells.len()
+                        self.core.cursor_x == self.core.rows[self.core.cursor_y].text.len()
                     {
                         self.status.set_message(DONT_EDIT_FOLDS);
                     } else {
@@ -1433,8 +1403,10 @@ mod tests {
             screen_cols: 10,
             row_offset: 0,
             col_offset: 0,
-            status_message: String::new(),
-            status_message_time: Instant::now(),
+            status: Status {
+                message: String::new(),
+                time: Instant::now(),
+            },
             quit_times: 3,
             input_source: input.map_or(Box::new(io::empty()), |text| {
                 Box::new(FakeStdin::new(text.as_bytes()))
@@ -1576,55 +1548,55 @@ mod tests {
 
         assert_eq!(mock.core.rows.len(), 4);
         assert!(
-            mock.core.rows[0].cells[..2]
+            mock.core.rows[0].highlight[..2]
                 .iter()
-                .all(|cell| { cell.hl == EditorHighlight::Keyword1 })
+                .all(|&hl| { hl == EditorHighlight::Keyword1 })
         );
         assert!(
-            mock.core.rows[0].cells[2..]
+            mock.core.rows[0].highlight[2..]
                 .iter()
-                .all(|cell| { cell.hl == EditorHighlight::Normal })
+                .all(|&hl| { hl == EditorHighlight::Normal })
         );
         assert!(
-            mock.core.rows[1].cells[..13]
+            mock.core.rows[1].highlight[..13]
                 .iter()
-                .all(|cell| { cell.hl == EditorHighlight::Normal })
+                .all(|&hl| { hl == EditorHighlight::Normal })
         );
         assert!(
-            mock.core.rows[1].cells[13..30]
+            mock.core.rows[1].highlight[13..30]
                 .iter()
-                .all(|cell| { cell.hl == EditorHighlight::String })
+                .all(|&hl| { hl == EditorHighlight::String })
         );
         assert!(
-            mock.core.rows[1].cells[30..]
+            mock.core.rows[1].highlight[30..]
                 .iter()
-                .all(|cell| { cell.hl == EditorHighlight::Normal })
+                .all(|&hl| { hl == EditorHighlight::Normal })
         );
         assert!(
-            mock.core.rows[2].cells[..4]
+            mock.core.rows[2].highlight[..4]
                 .iter()
-                .all(|cell| { cell.hl == EditorHighlight::Normal })
+                .all(|&hl| { hl == EditorHighlight::Normal })
         );
         assert!(
-            mock.core.rows[2].cells[4..7]
+            mock.core.rows[2].highlight[4..7]
                 .iter()
-                .all(|cell| { cell.hl == EditorHighlight::Number })
+                .all(|&hl| { hl == EditorHighlight::Number })
         );
         assert!(
-            mock.core.rows[2].cells[7..8]
+            mock.core.rows[2].highlight[7..8]
                 .iter()
-                .all(|cell| { cell.hl == EditorHighlight::Normal })
+                .all(|&hl| { hl == EditorHighlight::Normal })
         );
         assert!(
-            mock.core.rows[2].cells[8..]
+            mock.core.rows[2].highlight[8..]
                 .iter()
-                .all(|cell| { cell.hl == EditorHighlight::Comment })
+                .all(|&hl| { hl == EditorHighlight::Comment })
         );
         assert!(
             mock.core.rows[3]
-                .cells
+                .highlight
                 .iter()
-                .all(|cell| { cell.hl == EditorHighlight::Normal })
+                .all(|&hl| { hl == EditorHighlight::Normal })
         );
     }
     #[test]
@@ -1641,30 +1613,30 @@ mod tests {
 
         assert_eq!(mock.core.rows.len(), 3);
         assert!(
-            mock.core.rows[0].cells[..8]
+            mock.core.rows[0].highlight[..8]
                 .iter()
-                .all(|cell| { cell.hl == EditorHighlight::Normal })
+                .all(|&hl| { hl == EditorHighlight::Normal })
         );
         assert!(
-            mock.core.rows[0].cells[8..]
+            mock.core.rows[0].highlight[8..]
                 .iter()
-                .all(|cell| { cell.hl == EditorHighlight::String })
+                .all(|&hl| { hl == EditorHighlight::String })
         );
         assert!(
             mock.core.rows[1]
-                .cells
+                .highlight
                 .iter()
-                .all(|cell| { cell.hl == EditorHighlight::String })
+                .all(|&hl| { hl == EditorHighlight::String })
         );
         assert!(
-            mock.core.rows[2].cells[..8]
+            mock.core.rows[2].highlight[..8]
                 .iter()
-                .all(|cell| { cell.hl == EditorHighlight::String })
+                .all(|&hl| { hl == EditorHighlight::String })
         );
         assert!(
-            mock.core.rows[2].cells[8..]
+            mock.core.rows[2].highlight[8..]
                 .iter()
-                .all(|cell| { cell.hl == EditorHighlight::Normal })
+                .all(|&hl| { hl == EditorHighlight::Normal })
         );
     }
 
@@ -1678,9 +1650,9 @@ mod tests {
 
         mock.core.load_text(text);
 
-        assert_eq!(mock.core.rows[1].cells[0].hl, EditorHighlight::String);
+        assert_eq!(mock.core.rows[1].highlight[0], EditorHighlight::String);
         mock.process_keypress(EditorKey::Delete);
-        assert_eq!(mock.core.rows[1].cells[0].hl, EditorHighlight::Normal);
+        assert_eq!(mock.core.rows[1].highlight[0], EditorHighlight::Normal);
     }
 
     #[test]
@@ -1693,7 +1665,7 @@ mod tests {
 
         mock.core.load_text(text);
 
-        assert_eq!(mock.core.rows[2].cells[0].hl, EditorHighlight::String);
+        assert_eq!(mock.core.rows[2].highlight[0], EditorHighlight::String);
     }
 
     #[test]
@@ -1705,7 +1677,7 @@ mod tests {
         mock.activate_syntax();
         mock.core.load_text(text);
 
-        assert_eq!(mock.core.rows[1].cells[0].hl, EditorHighlight::Normal);
+        assert_eq!(mock.core.rows[1].highlight[0], EditorHighlight::Normal);
     }
 
     #[test]
@@ -1840,8 +1812,8 @@ mod tests {
             mock.core
                 .rows
                 .iter()
-                .flat_map(|row| row.cells.iter(),)
-                .all(|cell| cell.hl == EditorHighlight::Normal,)
+                .flat_map(|row| row.highlight.iter(),)
+                .all(|&hl| hl == EditorHighlight::Normal,)
         );
     }
 
@@ -1865,19 +1837,19 @@ mod tests {
         mock.find_callback(saved, EditorKey::ArrowDown);
 
         assert!(
-            mock.core.rows[0].cells[..19]
+            mock.core.rows[0].highlight[..19]
                 .iter()
-                .all(|cell| cell.hl == EditorHighlight::Normal)
+                .all(|&hl| hl == EditorHighlight::Normal)
         );
         assert!(
-            mock.core.rows[0].cells[19..25]
+            mock.core.rows[0].highlight[19..25]
                 .iter()
-                .all(|cell| cell.hl == EditorHighlight::Match)
+                .all(|&hl| hl == EditorHighlight::Match)
         );
         assert!(
-            mock.core.rows[0].cells[25..]
+            mock.core.rows[0].highlight[25..]
                 .iter()
-                .all(|cell| cell.hl == EditorHighlight::Normal)
+                .all(|&hl| hl == EditorHighlight::Normal)
         );
     }
 

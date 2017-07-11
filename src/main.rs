@@ -54,8 +54,8 @@ struct Row {
     open_quote: Option<char>,
 }
 
-struct EditorConfig<T: Read, W: Write> {
-    core: EditorCore,
+struct EditorConfig<'syntax, T: Read, W: Write> {
+    core: EditorCore<'syntax>,
     screen_rows: usize,
     screen_cols: usize,
     row_offset: usize,
@@ -70,11 +70,11 @@ struct EditorConfig<T: Read, W: Write> {
     paste_mode: bool,
 }
 
-struct EditorCore {
+struct EditorCore<'syntax> {
     cursor_x: usize,
     cursor_y: usize,
     rows: Vec<Row>,
-    syntax: Option<EditorSyntax>,
+    syntax: Option<EditorSyntax<'syntax>>,
     folds: HashMap<usize, (usize, usize)>,
     modified: bool,
 }
@@ -139,17 +139,17 @@ fn ctrl_key(k: char) -> char {
 }
 
 /// * filetypes **
-struct EditorSyntax {
-    filetype: &'static str,
-    extensions: Vec<&'static str>,
+struct EditorSyntax<'a> {
+    filetype: &'a str,
+    extensions: Vec<&'a str>,
     has_digits: bool,
-    quotes: &'static str,
-    singleline_comment: &'static str,
-    keywords: [Vec<&'static str>; 4],
+    quotes: &'a str,
+    singleline_comment: &'a str,
+    keywords: [Vec<&'a str>; 4],
 }
 
-impl EditorSyntax {
-    fn for_filename(filename: &str) -> Option<EditorSyntax> {
+impl<'a> EditorSyntax<'a> {
+    fn for_filename(filename: &str) -> Option<EditorSyntax<'static>> {
         let syntax_database = vec![
             EditorSyntax {
                 filetype: "rust",
@@ -376,7 +376,7 @@ fn read_key(input_source: &mut Read) -> EditorKey {
 }
 
 /// * core operations - rows, cursor, folds, syntax **
-impl EditorCore {
+impl<'syntax> EditorCore<'syntax> {
     fn check_consistency(&self) -> Option<&'static str> {
         let cursor_position_failure = if self.cursor_y > self.rows.len() {
             Some("Cursor y position out of bounds.")
@@ -789,12 +789,12 @@ impl EditorCore {
 }
 
 
-impl<T, W> EditorConfig<T, W>
+impl<'syntax, T, W> EditorConfig<'syntax, T, W>
 where
     T: Read,
     W: Write,
 {
-    fn new() -> EditorConfig<io::Stdin, io::BufWriter<io::Stdout>> {
+    fn new() -> EditorConfig<'syntax, io::Stdin, io::BufWriter<io::Stdout>> {
         let mut ws = libc::winsize {
             ws_row: 0,
             ws_col: 0,
@@ -856,15 +856,17 @@ where
 
     /// * file i/o **
     fn open(&mut self) -> io::Result<()> {
-        let filename = self.filename
-            .clone()
-            .expect("To open, filename must be set.");
         self.activate_syntax();
+        let mut file = {
+            let filename = self.filename
+                .as_ref()
+                .expect("To open, filename must be set.");
 
-        if !Path::new(&filename).exists() {
-            File::create(&filename)?;
-        }
-        let mut file = File::open(&filename)?;
+            if !Path::new(&filename).exists() {
+                File::create(&filename)?;
+            }
+            File::open(&filename)?
+        };
         let mut string = String::new();
         file.read_to_string(&mut string)?;
         self.core.load_text(&string);

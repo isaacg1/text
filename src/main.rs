@@ -61,8 +61,7 @@ struct EditorConfig<'syntax, T: Read, W: Write> {
     row_offset: usize,
     col_offset: usize,
     filename: Option<String>,
-    status_message: String,
-    status_message_time: Instant,
+    status: Status,
     quit_times: usize,
     input_source: T,
     output_buffer: W,
@@ -136,6 +135,18 @@ enum EditorKey {
 
 fn ctrl_key(k: char) -> char {
     (k as u8 & 0x1f) as char
+}
+
+struct Status {
+    message: String,
+    time: Instant,
+}
+
+impl Status {
+    fn set_message(&mut self, message: &str) {
+        self.message = message.to_string();
+        self.time = Instant::now();
+    }
 }
 
 /// * filetypes **
@@ -822,8 +833,10 @@ where
                 screen_cols: ws.ws_col as usize,
                 row_offset: 0,
                 col_offset: 0,
-                status_message: String::new(),
-                status_message_time: Instant::now(),
+                status: Status {
+                    message: String::new(),
+                    time: Instant::now(),
+                },
                 quit_times: 3,
                 input_source: io::stdin(),
                 output_buffer: BufWriter::new(io::stdout()),
@@ -836,7 +849,7 @@ where
     fn warn_consistency(&mut self) {
         let failure = { self.core.check_consistency() };
         if let Some(message) = failure {
-            self.set_status_message(message);
+            self.status.set_message(message);
         }
     }
 
@@ -878,7 +891,7 @@ where
         if self.filename.is_none() {
             match self.prompt("Save as: ", "", None) {
                 None => {
-                    self.set_status_message("Save aborted");
+                    self.status.set_message("Save aborted");
                     return Ok(());
                 }
                 Some(filename) => {
@@ -892,7 +905,8 @@ where
         let text = self.core.all_text();
         file.write_all(text.as_bytes())?;
         self.core.modified = false;
-        self.set_status_message(&format!("{} bytes written to disk", text.len()));
+        self.status
+            .set_message(&format!("{} bytes written to disk", text.len()));
         Ok(())
     }
 
@@ -985,16 +999,17 @@ where
                         self.core.cursor_y = line - 1;
                         self.core.cursor_x = 0;
                     } else {
-                        self.set_status_message(&format!("Line {} outside of range of file", line));
+                        self.status
+                            .set_message(&format!("Line {} outside of range of file", line));
                     }
                 }
-                Err(_) => self.set_status_message("Line was not numeric"),
+                Err(_) => self.status.set_message("Line was not numeric"),
             }
         }
     }
 
     fn display_help(&mut self) {
-        self.set_status_message(
+        self.status.set_message(
             "C-s save, C-q quit, C-f find, C-' ' fold, \
              C-e refresh, C-k del row, C-g go to, C-p paste mode, C-h help.",
         )
@@ -1126,8 +1141,8 @@ where
     fn draw_message_bar(&mut self) -> io::Result<()> {
         let mut output_buffer = &mut self.output_buffer;
         write!(output_buffer, "{}", CLEAR_RIGHT)?;
-        if self.status_message_time.elapsed().as_secs() < 5 {
-            let mut message = self.status_message.clone();
+        if self.status.time.elapsed().as_secs() < 5 {
+            let mut message = self.status.message.clone();
             message.truncate(self.screen_cols);
             write!(output_buffer, "{}", message)?;
         }
@@ -1151,11 +1166,6 @@ where
         Ok(())
     }
 
-    fn set_status_message(&mut self, message: &str) {
-        self.status_message = message.to_string();
-        self.status_message_time = Instant::now();
-    }
-
     /// * input **
 
     fn prompt(
@@ -1166,7 +1176,7 @@ where
     ) -> Option<String> {
         let mut response: String = initial_response.to_owned();
         loop {
-            self.set_status_message(&format!("{}{}", prompt, response));
+            self.status.set_message(&format!("{}{}", prompt, response));
             self.refresh_screen()
                 .expect("Screen should refresh successfully");
 
@@ -1180,13 +1190,13 @@ where
             }
             match c {
                 EditorKey::Verbatim(chr) if chr == '\x1b' || chr == ctrl_key('q') => {
-                    self.set_status_message("");
+                    self.status.set_message("");
                     maybe_callback!();
                     return None;
                 }
                 EditorKey::Verbatim(chr) if chr == '\r' => {
                     if !response.is_empty() {
-                        self.set_status_message("");
+                        self.status.set_message("");
                         maybe_callback!();
                         return Some(response);
                     }
@@ -1283,7 +1293,7 @@ where
         if c == EditorKey::Verbatim(ctrl_key('q')) {
             if self.core.modified && self.quit_times > 0 {
                 let quit_times = self.quit_times;
-                self.set_status_message(&format!(
+                self.status.set_message(&format!(
                     "Warning: File has unsaved changes. \
                      Ctrl-S to save, or press Ctrl-Q \
                      {} more times to quit.",
@@ -1303,7 +1313,7 @@ where
                 EditorKey::Verbatim(chr) if chr == '\x1b' || chr == ctrl_key('l') => (),
                 EditorKey::Verbatim(chr) if chr == ctrl_key('e') => {
                     if self.core.modified {
-                        self.set_status_message(
+                        self.status.set_message(
                             "File has unsaved changed, and \
                              cannot be refreshed. Quit and \
                              reopen to discard changes.",
@@ -1311,13 +1321,16 @@ where
                     } else if self.filename.is_some() {
                         self.open().expect("Refreshing file failed")
                     } else {
-                        self.set_status_message("No file to refresh")
+                        self.status.set_message("No file to refresh")
                     }
                 }
                 EditorKey::Verbatim(chr) if chr == ctrl_key('s') => {
                     match self.save() {
                         Ok(()) => (),
-                        Err(e) => self.set_status_message(&format!("Saving failed with {}", e)),
+                        Err(e) => {
+                            self.status
+                                .set_message(&format!("Saving failed with {}", e))
+                        }
                     }
                 }
                 EditorKey::Verbatim(chr) if chr == ctrl_key('f') => self.find(),
@@ -1328,20 +1341,20 @@ where
                 // Editing commands
                 EditorKey::Delete |
                 EditorKey::Verbatim(_) if self.core.folds.contains_key(&self.core.cursor_y) => {
-                    self.set_status_message(DONT_EDIT_FOLDS);
+                    self.status.set_message(DONT_EDIT_FOLDS);
                 }
                 EditorKey::Verbatim('\r') => self.core.insert_newline(self.paste_mode),
                 EditorKey::Delete => {
                     if self.core.folds.contains_key(&(self.core.cursor_y + 1)) &&
                         self.core.cursor_x == self.core.rows[self.core.cursor_y].cells.len()
                     {
-                        self.set_status_message(DONT_EDIT_FOLDS);
+                        self.status.set_message(DONT_EDIT_FOLDS);
                     } else {
                         self.move_cursor(EditorKey::ArrowRight);
                         let delete_result = self.core.delete_char();
                         if let Err(reason) = delete_result {
                             assert_eq!(reason, DONT_EDIT_FOLDS);
-                            self.set_status_message(DONT_EDIT_FOLDS);
+                            self.status.set_message(DONT_EDIT_FOLDS);
                         }
                     }
                 }
@@ -1349,7 +1362,7 @@ where
                     let delete_result = self.core.delete_char();
                     if let Err(reason) = delete_result {
                         assert_eq!(reason, DONT_EDIT_FOLDS);
-                        self.set_status_message(DONT_EDIT_FOLDS);
+                        self.status.set_message(DONT_EDIT_FOLDS);
                     }
                 }
                 EditorKey::Verbatim(chr) if chr == ctrl_key('k') => self.core.delete_row(),

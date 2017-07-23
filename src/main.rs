@@ -1,7 +1,6 @@
 #![allow(unknown_lints)]
 #![warn(clippy_pedantic)]
 #![allow(print_stdout, missing_docs_in_private_items, filter_map, string_add)]
-#![feature(associated_consts)]
 extern crate termios;
 extern crate libc;
 extern crate colored;
@@ -135,9 +134,7 @@ struct Row {
 
 impl Row {
     fn new() -> Row {
-        Row {
-            text: String::new(),
-        }
+        Row { text: String::new() }
     }
     fn make_highlights(
         &self,
@@ -353,10 +350,9 @@ impl<'a> EditorSyntax<'a> {
             },
         ];
         syntax_database.into_iter().find(|entry| {
-            entry
-                .extensions
-                .iter()
-                .any(|extension| filename.ends_with(extension))
+            entry.extensions.iter().any(|extension| {
+                filename.ends_with(extension)
+            })
         })
     }
 }
@@ -402,9 +398,7 @@ fn whitespace_depth(row: &Row) -> usize {
 /// * row operations **
 
 fn string_to_row(s: &str) -> Row {
-    Row {
-        text: s.to_string(),
-    }
+    Row { text: s.to_string() }
 }
 
 /// * i/o **
@@ -415,9 +409,9 @@ fn read_key(input_source: &mut Read) -> EditorKey {
     let c = buffer[0] as char;
     if c == '\x1b' {
         let mut escape_buf: [u8; 3] = [0; 3];
-        match input_source
-            .read(&mut escape_buf)
-            .expect("Read failure during escape sequence") {
+        match input_source.read(&mut escape_buf).expect(
+            "Read failure during escape sequence",
+        ) {
             2 | 3 => {
                 match escape_buf[0] as char {
                     '[' => {
@@ -491,9 +485,9 @@ impl<'syntax> EditorCore<'syntax> {
                 }
             }
         }
-        cursor_position_failure
-            .or(fold_failure)
-            .or(fold_fold_failure)
+        cursor_position_failure.or(fold_failure).or(
+            fold_fold_failure,
+        )
     }
 
     fn current_row_len(&self) -> usize {
@@ -543,12 +537,12 @@ impl<'syntax> EditorCore<'syntax> {
     fn open_folds(&mut self) {
         let to_remove: Vec<_> = self.folds
             .iter()
-            .filter_map(|(&start, &(end, _depth))| {
-                if start <= self.cursor_y && self.cursor_y <= end {
-                    Some(start)
-                } else {
-                    None
-                }
+            .filter_map(|(&start, &(end, _depth))| if start <= self.cursor_y &&
+                self.cursor_y <= end
+            {
+                Some(start)
+            } else {
+                None
             })
             .collect();
         for start in to_remove {
@@ -566,9 +560,9 @@ impl<'syntax> EditorCore<'syntax> {
     fn one_row_back(&self, index: usize) -> usize {
         let prev_index = index.saturating_sub(1);
         if let Some((&start, _end_and_depth)) =
-            self.folds
-                .iter()
-                .find(|&(_start, &(end, _depth))| end == prev_index)
+            self.folds.iter().find(|&(_start, &(end, _depth))| {
+                end == prev_index
+            })
         {
             start
         } else {
@@ -648,7 +642,6 @@ impl<'syntax> EditorCore<'syntax> {
                 self.cursor_x = 0;
             } else {
                 self.rows[self.cursor_y].text.truncate(self.cursor_x);
-                self.rows[self.cursor_y].text.truncate(self.cursor_x);
                 self.modified = true;
             }
         }
@@ -661,9 +654,9 @@ impl<'syntax> EditorCore<'syntax> {
             self.modified = true;
             Ok(())
         } else if 0 < self.cursor_y && self.cursor_y < self.rows.len() {
-            if self.folds
-                .values()
-                .any(|&(end, _)| end == self.cursor_y - 1)
+            if self.folds.values().any(
+                |&(end, _)| end == self.cursor_y - 1,
+            )
             {
                 Err(DONT_EDIT_FOLDS.to_owned())
             } else {
@@ -760,7 +753,9 @@ where
     }
 
     fn warn_consistency(&mut self) {
-        let failure = { self.core.check_consistency() };
+        let failure = {
+            self.core.check_consistency()
+        };
         if let Some(message) = failure {
             self.status.set_message(message);
         }
@@ -772,18 +767,18 @@ where
 
 
     fn activate_syntax(&mut self) {
-        self.core.syntax = self.filename
-            .as_ref()
-            .and_then(|filename| EditorSyntax::for_filename(filename));
+        self.core.syntax = self.filename.as_ref().and_then(|filename| {
+            EditorSyntax::for_filename(filename)
+        });
     }
 
     /// * file i/o **
     fn open(&mut self) -> io::Result<()> {
         self.activate_syntax();
         let mut file = {
-            let filename = self.filename
-                .as_ref()
-                .expect("To open, filename must be set.");
+            let filename = self.filename.as_ref().expect(
+                "To open, filename must be set.",
+            );
 
             if !Path::new(&filename).exists() {
                 File::create(&filename)?;
@@ -815,8 +810,9 @@ where
         let text = self.core.all_text();
         file.write_all(text.as_bytes())?;
         self.core.modified = false;
-        self.status
-            .set_message(&format!("{} bytes written to disk", text.len()));
+        self.status.set_message(
+            &format!("{} bytes written to disk", text.len()),
+        );
         Ok(())
     }
 
@@ -829,9 +825,9 @@ where
                 .iter()
                 .enumerate()
                 .flat_map(|(row_index, row)| {
-                    row.text
-                        .match_indices(query)
-                        .map(move |(char_index, _)| (row_index, char_index))
+                    row.text.match_indices(query).map(move |(char_index, _)| {
+                        (row_index, char_index)
+                    })
                 })
                 .collect();
             // We sort by ! of whether the row index is forward,
@@ -898,8 +894,10 @@ where
                         self.core.cursor_y = line - 1;
                         self.core.cursor_x = 0;
                     } else {
-                        self.status
-                            .set_message(&format!("Line {} outside of range of file", line));
+                        self.status.set_message(&format!(
+                            "Line {} outside of range of file",
+                            line
+                        ));
                     }
                 }
                 Err(_) => self.status.set_message("Line was not numeric"),
@@ -956,8 +954,8 @@ where
                 let current_row = &self.core.rows[file_row];
                 if self.col_offset < current_row.text.len() {
                     let mut chars_written = 0;
-                    let (highlights, next_open_quote) = current_row
-                        .make_highlights(&self.core.syntax, prev_open_quote);
+                    let (highlights, next_open_quote) =
+                        current_row.make_highlights(&self.core.syntax, prev_open_quote);
                     prev_open_quote = next_open_quote;
                     assert_eq!(highlights.len(), current_row.text.len());
                     for (index, (chr, &hl)) in
@@ -1018,33 +1016,37 @@ where
 
     fn draw_status_bar(&mut self) -> io::Result<()> {
         let mut output_buffer = &mut self.output_buffer;
-        let mut name = self.filename
-            .clone()
-            .unwrap_or_else(|| "[No Name]".to_string());
-        name.truncate(20);
+        let name = self.filename.clone().unwrap_or_else(
+            || "[No Name]".to_string(),
+        );
         let dirty = if self.core.modified { "(modified)" } else { "" };
         let paste = if self.paste_mode { "(paste)" } else { "" };
-        let mut status = format!("{} {} {}", name, dirty, paste);
+        let mut status = format!("{:.20} {} {}", name, dirty, paste);
         status.truncate(self.screen_cols);
 
         let filetype = match self.core.syntax {
             None => "no ft",
             Some(ref syntax) => syntax.filetype,
         };
-        let mut right_status = format!(
+        let right_status = format!(
             "{} | r: {}/{}, c: {}/{}",
             filetype,
             self.core.cursor_y + 1,
             self.core.rows.len(),
             self.core.cursor_x + 1,
-            self.core
-                .rows
-                .get(self.core.cursor_y)
-                .map_or(0, |row| row.text.len())
+            self.core.rows.get(self.core.cursor_y).map_or(
+                0,
+                |row| row.text.len(),
+            )
         );
-        right_status.truncate(self.screen_cols.saturating_sub(status.len() + 1));
         let room_remaining = self.screen_cols - status.len();
-        let to_write = format!("{}{:>width$}", status, right_status, width = room_remaining);
+        let to_write = format!(
+            "{}{:>width$.size_cap$}",
+            status,
+            right_status,
+            size_cap = self.screen_cols.saturating_sub(status.len() + 1),
+            width = room_remaining
+        );
         write!(output_buffer, "{}\r\n", to_write.reversed())?;
         Ok(())
     }
@@ -1053,9 +1055,12 @@ where
         let mut output_buffer = &mut self.output_buffer;
         write!(output_buffer, "{}", CLEAR_RIGHT)?;
         if self.status.time.elapsed().as_secs() < 5 {
-            let mut message = self.status.message.clone();
-            message.truncate(self.screen_cols);
-            write!(output_buffer, "{}", message)?;
+            write!(
+                output_buffer,
+                "{:.space$}",
+                self.status.message,
+                space = self.screen_cols
+            )?;
         }
         Ok(())
     }
@@ -1088,8 +1093,9 @@ where
         let mut response: String = initial_response.to_owned();
         loop {
             self.status.set_message(&format!("{}{}", prompt, response));
-            self.refresh_screen()
-                .expect("Screen should refresh successfully");
+            self.refresh_screen().expect(
+                "Screen should refresh successfully",
+            );
 
             let c = read_key(&mut self.input_source);
             macro_rules! maybe_callback {
@@ -1239,8 +1245,9 @@ where
                     match self.save() {
                         Ok(()) => (),
                         Err(e) => {
-                            self.status
-                                .set_message(&format!("Saving failed with {}", e))
+                            self.status.set_message(
+                                &format!("Saving failed with {}", e),
+                            )
                         }
                     }
                 }
@@ -1299,9 +1306,9 @@ fn run() {
     editor_config.display_help();
     loop {
         editor_config.warn_consistency();
-        editor_config
-            .refresh_screen()
-            .expect("Screen should refresh successfully");
+        editor_config.refresh_screen().expect(
+            "Screen should refresh successfully",
+        );
         let keypress = read_key(&mut editor_config.input_source);
         let to_continue = editor_config.process_keypress(keypress);
         if !to_continue {
@@ -1379,9 +1386,7 @@ mod tests {
         fn new(contents: &[u8]) -> FakeStdin {
             let mut contents = contents.to_owned();
             contents.reverse();
-            FakeStdin {
-                backward_contents: contents,
-            }
+            FakeStdin { backward_contents: contents }
         }
     }
 
@@ -1490,27 +1495,19 @@ mod tests {
 
         assert_eq!(mock.core.rows.len(), 4);
         let (h0, oq) = mock.core.rows[0].make_highlights(&mock.core.syntax, None);
-        assert!(
-            h0[..2]
-                .iter()
-                .all(|&hl| { hl == EditorHighlight::Keyword1 })
-        );
-        assert!(h0[2..].iter().all(|&hl| { hl == EditorHighlight::Normal }));
+        assert!(h0[..2].iter().all(|&hl| hl == EditorHighlight::Keyword1));
+        assert!(h0[2..].iter().all(|&hl| hl == EditorHighlight::Normal));
         let (h1, oq) = mock.core.rows[1].make_highlights(&mock.core.syntax, oq);
-        assert!(h1[..13].iter().all(|&hl| { hl == EditorHighlight::Normal }));
-        assert!(
-            h1[13..30]
-                .iter()
-                .all(|&hl| { hl == EditorHighlight::String })
-        );
-        assert!(h1[30..].iter().all(|&hl| { hl == EditorHighlight::Normal }));
+        assert!(h1[..13].iter().all(|&hl| hl == EditorHighlight::Normal));
+        assert!(h1[13..30].iter().all(|&hl| hl == EditorHighlight::String));
+        assert!(h1[30..].iter().all(|&hl| hl == EditorHighlight::Normal));
         let (h2, oq) = mock.core.rows[2].make_highlights(&mock.core.syntax, oq);
-        assert!(h2[..4].iter().all(|&hl| { hl == EditorHighlight::Normal }));
-        assert!(h2[4..7].iter().all(|&hl| { hl == EditorHighlight::Number }));
-        assert!(h2[7..8].iter().all(|&hl| { hl == EditorHighlight::Normal }));
-        assert!(h2[8..].iter().all(|&hl| { hl == EditorHighlight::Comment }));
+        assert!(h2[..4].iter().all(|&hl| hl == EditorHighlight::Normal));
+        assert!(h2[4..7].iter().all(|&hl| hl == EditorHighlight::Number));
+        assert!(h2[7..8].iter().all(|&hl| hl == EditorHighlight::Normal));
+        assert!(h2[8..].iter().all(|&hl| hl == EditorHighlight::Comment));
         let (h3, _) = mock.core.rows[3].make_highlights(&mock.core.syntax, oq);
-        assert!(h3.iter().all(|&hl| { hl == EditorHighlight::Normal }));
+        assert!(h3.iter().all(|&hl| hl == EditorHighlight::Normal));
     }
     #[test]
     fn multiline_string_highlight() {
@@ -1526,13 +1523,13 @@ mod tests {
 
         assert_eq!(mock.core.rows.len(), 3);
         let (h0, oq) = mock.core.rows[0].make_highlights(&mock.core.syntax, None);
-        assert!(h0[..8].iter().all(|&hl| { hl == EditorHighlight::Normal }));
-        assert!(h0[8..].iter().all(|&hl| { hl == EditorHighlight::String }));
+        assert!(h0[..8].iter().all(|&hl| hl == EditorHighlight::Normal));
+        assert!(h0[8..].iter().all(|&hl| hl == EditorHighlight::String));
         let (h1, oq) = mock.core.rows[1].make_highlights(&mock.core.syntax, oq);
-        assert!(h1.iter().all(|&hl| { hl == EditorHighlight::String }));
+        assert!(h1.iter().all(|&hl| hl == EditorHighlight::String));
         let (h2, _) = mock.core.rows[2].make_highlights(&mock.core.syntax, oq);
-        assert!(h2[..8].iter().all(|&hl| { hl == EditorHighlight::String }));
-        assert!(h2[8..].iter().all(|&hl| { hl == EditorHighlight::Normal }));
+        assert!(h2[..8].iter().all(|&hl| hl == EditorHighlight::String));
+        assert!(h2[8..].iter().all(|&hl| hl == EditorHighlight::Normal));
     }
 
     #[test]
@@ -1715,8 +1712,8 @@ mod tests {
             mock.core
                 .rows
                 .iter()
-                .flat_map(|row| row.make_highlights(&mock.core.syntax, None).0,)
-                .all(|hl| hl == EditorHighlight::Normal,)
+                .flat_map(|row| row.make_highlights(&mock.core.syntax, None).0)
+                .all(|hl| hl == EditorHighlight::Normal)
         );
     }
 
